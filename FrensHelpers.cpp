@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <cstring>
 #include <malloc.h>
+#include <unistd.h>
+#include <climits>
 #include "pico.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
@@ -80,6 +82,7 @@ char ErrorMessage[ERRORMESSAGESIZE];
 bool scaleMode8_7_ = true;
 uintptr_t ROM_FILE_ADDR = 0;
 int maxRomSize = 0;
+extern char __StackLimit; // end of the heap region (linker script)
 
 namespace Frens
 {
@@ -1795,6 +1798,31 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
         initDVandAudio(marginTop, marginBottom, 256);
     }
 
+    // newlib's malloc grows the heap by sbrk'ing the *whole* request, even when the
+    // free block at the top of the heap already holds most of it. Near the end of
+    // RAM a big block then fails with enough memory free. Whether it does depends on
+    // how far earlier allocations happened to grow the heap: on an RP2040 without
+    // PSRAM an NES MMC5 game started right after flashing ran (flashrom's buffer had
+    // grown it), but the same game started again, with nothing to flash, panicked
+    // with "Out of memory".
+    // Claiming all heap RAM once at boot, and keeping free() from handing it back,
+    // means malloc never needs sbrk again and every allocation sees all free memory.
+    // Only done without PSRAM: with it, f_malloc does not touch SRAM, and some
+    // emulators (SNES) balance their own SRAM-first/PSRAM-fallback buffers against
+    // the current behaviour.
+    static void claimHeap()
+    {
+        mallopt(M_TRIM_THRESHOLD, INT_MAX);
+        // sbrk requests are rounded up to 4KB pages, so ask for a little less than
+        // whole pages: the rounding still takes the heap right up to the limit.
+        size_t room = (size_t)(&__StackLimit - (char *)sbrk(0)) & ~(size_t)4095;
+        if (room > 4096)
+        {
+            void *volatile block = malloc(room - 256);
+            free(block);
+        }
+    }
+
     /// @brief Initialize SD Card, Audio, Video etc...
     /// @param selectedRom   The user selected rom
     /// @param CPUFreqKHz    Clock frequency in kHz of the cpu
@@ -1820,6 +1848,8 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
         dumpHeapStats("initAll/preInitPsram");
         if (initPsram() == false)
         {
+            claimHeap();
+            dumpHeapStats("initAll/claimHeap");
             printf("PSRAM not enabled, using flash for rom storage\n");
             auto flashcap = storage_get_flash_capacity();
             printf("Flash capacity: %d bytes (%d Kbytes)\n", flashcap, flashcap / 1024);
