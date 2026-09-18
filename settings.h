@@ -45,8 +45,9 @@ struct settings
         uint32_t overclock : 1;        // 1 = boot/run at FLASHPARAM_MAX_FREQ_KHZ, 0 = FLASHPARAM_MIN_FREQ_KHZ
         uint32_t useFM : 1;            // SMS-only: 1 = YM2413 FM sound on (RP2350 only); 0 = PSG only
         uint32_t serialKeyboard : 1;   // TI-99/4A only: 1 = type characters arriving on the serial console into the machine. Off by default: an unconnected RX pin would otherwise frame noise into the emulated keyboard.
-        uint32_t reserved : 14;        // spare bits for future flags; reset to 0
-    } flags; // 18 bits used + 14 reserved = full 32-bit container
+        uint32_t removeSpriteLimit : 1; // NES only: 1 = draw every sprite on a scanline (less flicker), 0 = hardware limit of 8. Inverted so that the spare bit (0) in older saved files keeps the limit on.
+        uint32_t reserved : 13;        // spare bits for future flags; reset to 0
+    } flags; // 19 bits used + 13 reserved = full 32-bit container
 
 };
 namespace FrensSettings
