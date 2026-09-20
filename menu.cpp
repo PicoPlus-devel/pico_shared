@@ -3853,7 +3853,18 @@ int showSettingsMenu(bool calledFromGame)
     }
     for (int i = 0; i < MOPT_COUNT; ++i)
     {
-        if (i == MOPT_FDS_DISK_SWAP) continue; // already handled above
+        if (i == MOPT_FDS_DISK_SWAP)
+        {
+            // Already listed first. Its slot, right after the other FDS entries,
+            // is where the sprite limit goes: that option had to be appended at
+            // the end of the enum, but it belongs with the NES settings.
+            if (g_settings_visibility[MOPT_SPRITE_LIMIT] > 0)
+            {
+                visibleIndices[visibleCount++] = MOPT_SPRITE_LIMIT;
+            }
+            continue;
+        }
+        if (i == MOPT_SPRITE_LIMIT) continue;  // already handled above
         if (i == MOPT_RECENT_GAMES) continue;  // already handled above
         // The three action entries that close the list are appended after this
         // loop in a fixed order, so skip them here.
@@ -4239,6 +4250,12 @@ int showSettingsMenu(bool calledFromGame)
             {
                 label = "FDS Auto Insert Disk 1 On Start";
                 value = working.flags.autoInsertDiskA ? "ON" : "OFF";
+                break;
+            }
+            case MenuSettingsIndex::MOPT_SPRITE_LIMIT:
+            {
+                label = "Sprite Limit (8 per line)";
+                value = working.flags.removeSpriteLimit ? "OFF" : "ON";
                 break;
             }
             case MenuSettingsIndex::MOPT_FDS_DISK_SWAP:
@@ -4861,6 +4878,11 @@ int showSettingsMenu(bool calledFromGame)
                     case MOPT_AUTO_INSERT_FDS_DISK_A:
                     {
                         working.flags.autoInsertDiskA = !working.flags.autoInsertDiskA;
+                        break;
+                    }
+                    case MOPT_SPRITE_LIMIT:
+                    {
+                        working.flags.removeSpriteLimit = !working.flags.removeSpriteLimit;
                         break;
                     }
                     case MOPT_FDS_DISK_SWAP:

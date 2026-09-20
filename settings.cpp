@@ -123,6 +123,7 @@ namespace FrensSettings
         printf("overclock: %d\n", settings.flags.overclock);
         printf("useFM: %d\n", settings.flags.useFM);
         printf("serialKeyboard: %d\n", settings.flags.serialKeyboard);
+        printf("removeSpriteLimit: %d\n", settings.flags.removeSpriteLimit);
         printf("\n");
     }
     void resetsettings(struct settings *settingsPtr)
@@ -161,6 +162,7 @@ namespace FrensSettings
         settings.flags.overclock = 0; // default: run at FLASHPARAM_MIN_FREQ_KHZ
         settings.flags.useFM = 0; // default: disable FM audio
         settings.flags.serialKeyboard = 0; // default: ignore the serial console as an input
+        settings.flags.removeSpriteLimit = 0; // default: NES hardware limit of 8 sprites per scanline
         settings.flags.reserved = 0;  // clear spare bits
         snprintf(settings.currentDir, sizeof(settings.currentDir), "/roms/%s", emulatorstrings[static_cast<int>(emulatorType)]);
     }
