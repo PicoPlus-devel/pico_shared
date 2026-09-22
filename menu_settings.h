@@ -43,6 +43,7 @@ enum MenuSettingsIndex {
     MOPT_DISK,           // TI-99/4A disk drives: mount a .dsk image into DSK1, DSK2 or DSK3
     MOPT_SERIAL_KEYBOARD, // TI-99/4A: type text arriving on the serial console into the machine
     MOPT_SPRITE_LIMIT,    // NES: 8 sprites per scanline limit. Listed below the FDS options, see menu.cpp
+    MOPT_MENU_OVERSCAN,   // Blank menu edges for TVs that cut them off. Listed below the menu colors, see menu.cpp
     MOPT_COUNT
 };
 // Short description (max 40 chars) for each option. Use designated initializers
@@ -82,6 +83,7 @@ const char* const g_settings_descriptions[MOPT_COUNT] = {
     [MOPT_DISK]                      = "Mount a disk image into DSK1, DSK2 or DSK3",
     [MOPT_SERIAL_KEYBOARD]           = "Type text sent over the serial console",
     [MOPT_SPRITE_LIMIT]              = "Off: less flicker, rare glitches",
+    [MOPT_MENU_OVERSCAN]             = "Blank menu edges for TV overscan",
 };
 
 extern const int8_t *g_settings_visibility; // Visibility configuration for options menu

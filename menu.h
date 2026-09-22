@@ -14,8 +14,17 @@
 #define PICOHWNAME_ "rp2040"
 #endif
 
-#define SCREEN_COLS 40
-#define SCREEN_ROWS 30
+// The menu draws an 8x8 font on the 320x240 screen: a grid of 40 x 30 characters.
+// Use these to size buffers.
+#define MAX_SCREEN_COLS 40
+#define MAX_SCREEN_ROWS 30
+// The part of that grid the menu lays out on. It is smaller when the "Overscan in menu"
+// setting leaves the edge rows (and columns) blank for TVs that cut them off; the
+// renderer puts it in the middle of the screen and paints the edges.
+extern int8_t menuScreenCols;
+extern int8_t menuScreenRows;
+#define SCREEN_COLS (menuScreenCols)
+#define SCREEN_ROWS (menuScreenRows)
 
 #define STARTROW 3
 #define ENDROW (SCREEN_ROWS - 5)
@@ -39,7 +48,10 @@ struct charCell
 #define DEFAULTSAMPLEFILEFORMAT "/Metadata/%s/sample.wav"
 enum SaveStateTypes { NONE, SAVE, LOAD, SAVE_AND_EXIT, LOAD_AND_START };
 extern charCell *screenBuffer;
-#define screenbufferSize  (sizeof(charCell) * SCREEN_COLS * SCREEN_ROWS)
+#define screenbufferSize  (sizeof(charCell) * MAX_SCREEN_COLS * MAX_SCREEN_ROWS)
+// 0 = full screen, 1 = leave the top and bottom row blank, 2 = also the first and last column.
+// Takes effect on the next ClearScreen() and redraw.
+void menuApplyOverscan(int mode);
 void menu(const char *title, char *errorMessage, bool isFatalError, bool showSplash, const char *allowedExtensions, char *rompath);
 void ClearScreen(int color);
 void putText(int x, int y, const char *text, int fgcolor, int bgcolor, bool wraplines = false, int offset = 0);
