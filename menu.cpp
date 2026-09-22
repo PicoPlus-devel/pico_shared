@@ -3996,21 +3996,23 @@ int showSettingsMenu(bool calledFromGame)
     //   rowStartOptions .. rowStartOptions+optionWindowSize-1 (option slots),
     //   downIndicatorRow,
     //   blank,
-    //   actionRowScreen (SAVE / CANCEL / DEFAULT, fixed),
-    //   blank,
-    //   paletteStartRow .. paletteStartRow+3 (4x16 palette),
+    //   actionRowScreen (SAVE / CANCEL / DEFAULT),
     //   blank,
     //   helpRowScreen (option description),
-    //   ... free ...,
     //   bottom-anchored hint lines at SCREEN_ROWS-3 .. SCREEN_ROWS-1.
-    const int optionWindowSize  = 12;
+    // The option window takes every row the others leave free: 19 on the full screen, 17 when
+    // the overscan setting blanks the top and bottom row. That setting is previewed while the
+    // menu is open, so redraw() recomputes the rows below rowStartOptions on every frame.
+    // The color palette is not part of the layout: while one of the menu colors is highlighted
+    // it is drawn in the four rows above the action row, over whatever is there.
     const int rowStartOptions   = 3;
     const int upIndicatorRow    = rowStartOptions - 1;
-    const int downIndicatorRow  = rowStartOptions + optionWindowSize;
-    const int actionRowScreen   = downIndicatorRow + 2;
-    const int paletteStartRow   = actionRowScreen + 2;
+    int optionWindowSize        = 0;
+    int downIndicatorRow        = 0;
+    int actionRowScreen         = 0;
+    int helpRowScreen           = 0;
+    int paletteStartRow         = 0;
     const int paletteRowCount   = 4;
-    const int helpRowScreen     = paletteStartRow + paletteRowCount + 1;
     int  selectedOptionIndex = 0;                   // logical 0..visibleCount-1
     int  firstVisibleOption  = 0;                   // scroll offset
     bool onActionRow         = (visibleCount == 0); // no options -> start on action row
@@ -4018,6 +4020,10 @@ int showSettingsMenu(bool calledFromGame)
     exitMenu = false;
     bool applySettings = false; // true when SAVE, false when CANCEL
     bool mediaChanged = false;  // a PC wrote to the card in USB drive mode
+    auto isColorOption = [](int opt)
+    {
+        return opt == MOPT_FONT_COLOR || opt == MOPT_FONT_BACK_COLOR;
+    };
     // lambda to redraw the entire menu
     auto redraw = [&]()
     {
@@ -4025,6 +4031,38 @@ int showSettingsMenu(bool calledFromGame)
         // Preview the overscan setting while it is being changed; on exit it goes back
         // to the saved value.
         menuApplyOverscan(working.flags.menuOverscan);
+        optionWindowSize = SCREEN_ROWS - 11;
+        downIndicatorRow = rowStartOptions + optionWindowSize;
+        actionRowScreen  = downIndicatorRow + 2;
+        helpRowScreen    = actionRowScreen + 2;
+        paletteStartRow  = actionRowScreen - paletteRowCount;
+        // Keep the scroll offset valid for the window size just computed. The entries that
+        // must stay on screen are the selection, or on a menu color both color rows (they are
+        // adjacent in visibleIndices) - and then above the palette, which covers the last
+        // option rows while it is up.
+        const int maxFirst = (visibleCount > optionWindowSize) ? visibleCount - optionWindowSize : 0;
+        if (firstVisibleOption > maxFirst)
+            firstVisibleOption = maxFirst;
+        bool colorSelected = false;
+        int keepFirst = selectedOptionIndex;
+        int keepLast  = selectedOptionIndex;
+        if (!onActionRow && visibleCount > 0)
+        {
+            colorSelected = isColorOption(visibleIndices[selectedOptionIndex]);
+            int keepWindow = optionWindowSize;
+            if (colorSelected)
+            {
+                if (keepFirst > 0 && isColorOption(visibleIndices[keepFirst - 1]))
+                    keepFirst--;
+                if (keepLast < visibleCount - 1 && isColorOption(visibleIndices[keepLast + 1]))
+                    keepLast++;
+                keepWindow -= downIndicatorRow - paletteStartRow; // option rows under the palette
+            }
+            if (keepFirst < firstVisibleOption)
+                firstVisibleOption = keepFirst;
+            if (keepLast >= firstVisibleOption + keepWindow)
+                firstVisibleOption = keepLast - keepWindow + 1;
+        }
         ClearScreen(CWHITE); // Always white background
 
         int row = 0;
@@ -4213,7 +4251,7 @@ int showSettingsMenu(bool calledFromGame)
             }
             case MenuSettingsIndex::MOPT_MENU_OVERSCAN:
             {
-                label = "Overscan in menu";
+                label = "Overscan fix in menu";
                 switch (working.flags.menuOverscan)
                 {
                 case 0:
@@ -4460,40 +4498,43 @@ int showSettingsMenu(bool calledFromGame)
             }
             row++;
         }
-        // 64-color palette grid (4 rows x 16 columns). Each block is a space with fg=bg=colorIndex
-        row = paletteStartRow;
-        int blocksPerRow = 16;
-        int blockRows = paletteRowCount;
-        int gridWidth = blocksPerRow; // one char per block
-        int gridStartCol = (SCREEN_COLS - gridWidth) / 2;
-        if (gridStartCol < 0)
-            gridStartCol = 0;
-        for (int pr = 0; pr < blockRows; ++pr)
+        // 64-color palette grid (4 rows x 16 columns), only while a menu color is highlighted.
+        // It sits directly above the action row, over the last option rows - the scroll clamp
+        // above keeps the color rows themselves clear of it. Each block is a space with
+        // fg=bg=colorIndex.
+        if (colorSelected)
         {
-            char tmp[4];
-            snprintf(tmp, sizeof(tmp), "%02d", pr * blocksPerRow);
-            putText(gridStartCol - 2, row, tmp, CBLACK, CWHITE); // row label
-            for (int pc = 0; pc < blocksPerRow; ++pc)
+            row = paletteStartRow;
+            fillRect(0, row, SCREEN_COLS, paletteRowCount, CWHITE); // no option text beside it
+            int blocksPerRow = 16;
+            int gridStartCol = centerColClamped(blocksPerRow);
+            for (int pr = 0; pr < paletteRowCount; ++pr)
             {
-                int colorIndex = pr * blocksPerRow + pc;
-                if (colorIndex < 64)
+                char tmp[4];
+                snprintf(tmp, sizeof(tmp), "%02d", pr * blocksPerRow);
+                putText(gridStartCol - 2, row, tmp, CBLACK, CWHITE); // row label
+                for (int pc = 0; pc < blocksPerRow; ++pc)
                 {
-                    putText(gridStartCol + pc, row, " ", colorIndex, colorIndex);
+                    int colorIndex = pr * blocksPerRow + pc;
+                    if (colorIndex < 64)
+                    {
+                        putText(gridStartCol + pc, row, " ", colorIndex, colorIndex);
+                    }
                 }
+                // FG= after first palette row, BG= after second
+                int afterGrid = gridStartCol + blocksPerRow + 1;
+                if (pr == 0)
+                {
+                    snprintf(line, sizeof(line), "FG=%02d", working.fgcolor);
+                    putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
+                }
+                else if (pr == 1)
+                {
+                    snprintf(line, sizeof(line), "BG=%02d", working.bgcolor);
+                    putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
+                }
+                row++;
             }
-            // FG= after first palette row, BG= after second
-            int afterGrid = gridStartCol + blocksPerRow + 1;
-            if (pr == 0)
-            {
-                snprintf(line, sizeof(line), "FG=%02d", working.fgcolor);
-                putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
-            }
-            else if (pr == 1)
-            {
-                snprintf(line, sizeof(line), "BG=%02d", working.bgcolor);
-                putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
-            }
-            row++;
         }
         // Help text (dynamic button labels)
 
