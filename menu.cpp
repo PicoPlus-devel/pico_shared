@@ -137,8 +137,25 @@ const static char *connectedGamePadName[2];
 const static char *connectedGamePadShortName[2];
 
 
-#define SCREENBUFCELLS SCREEN_ROWS *SCREEN_COLS
+#define SCREENBUFCELLS (SCREEN_ROWS * SCREEN_COLS)
 charCell *screenBuffer;
+
+// Logical grid (see menu.h) and where it sits in the physical 40x30 one. The rows or
+// columns outside it are drawn in s_marginColor, the color of the last ClearScreen(),
+// so the border always matches the background of the screen on display.
+int8_t menuScreenCols = MAX_SCREEN_COLS;
+int8_t menuScreenRows = MAX_SCREEN_ROWS;
+static int8_t s_rowOffset = 0;
+static int8_t s_colOffset = 0;
+static int8_t s_marginColor = CBLACK;
+
+void menuApplyOverscan(int mode)
+{
+    s_rowOffset = (mode >= 1) ? 1 : 0;
+    s_colOffset = (mode >= 2) ? 1 : 0;
+    menuScreenRows = MAX_SCREEN_ROWS - 2 * s_rowOffset;
+    menuScreenCols = MAX_SCREEN_COLS - 2 * s_colOffset;
+}
 
 static char *selectedRomOrFolder;
 static bool errorInSavingRom = false;
@@ -466,18 +483,25 @@ void RomSelect_DrawLine(int line, int selectedRow, int pixelsToSkip = 0)
     WORD fgcolor, bgcolor;
 
     auto pixelRow = WorkLineRom + pixelsToSkip;
+    const WORD marginColor = NesMenuPalette[s_marginColor];
+    // Row of the logical grid; out of range on the blank overscan rows.
+    int row = line / FONT_CHAR_HEIGHT - s_rowOffset;
+    bool rowInGrid = row >= 0 && row < SCREEN_ROWS;
 
     // calculate first char column index from pixelstoskip
     auto firstCharColumnIndex = (pixelsToSkip % SCREENWIDTH) / FONT_CHAR_WIDTH;
-    for (auto i = 0; i < SCREEN_COLS; ++i)
+    for (auto i = firstCharColumnIndex; i < MAX_SCREEN_COLS; ++i)
     {
-        if (i < firstCharColumnIndex)
+        int col = i - s_colOffset;
+        if (!rowInGrid || col < 0 || col >= SCREEN_COLS)
         {
-            continue; // skip out of bounds
+            for (auto bit = 0; bit < 8; bit++)
+            {
+                *pixelRow++ = marginColor;
+            }
+            continue;
         }
-        int charIndex = i + line / FONT_CHAR_HEIGHT * SCREEN_COLS;
-
-        int row = charIndex / SCREEN_COLS;
+        int charIndex = row * SCREEN_COLS + col;
         uint c = screenBuffer[charIndex].charvalue;
         if (row == selectedRow)
         {
@@ -568,31 +592,48 @@ void drawline(int scanline, int selectedRow, int w = 0, int h = 0, uint16_t *ima
     bool validImage = (imagebuffer != nullptr) && (w > 0 && w <= SCREENWIDTH && h > 0 && h <= SCREENHEIGHT);
     if (validImage)
     {
+        bool moving = imagex || imagey;
+        // A still image (metadata screen) moves in with the text when the overscan
+        // setting leaves the screen edges blank. The screensaver uses the whole screen.
+        int ix = moving ? imagex : s_colOffset * FONT_CHAR_WIDTH;
+        int iy = moving ? imagey : s_rowOffset * FONT_CHAR_HEIGHT;
+        int copyw = (ix + w > SCREENWIDTH) ? SCREENWIDTH - ix : w;
         // avoid flicker on first line in metadata screen
         // clear line only when image is moving (screensaver)
-        if (imagex || imagey)
+        if (moving)
         {
             memset(WorkLineRom, 0, SCREENWIDTH * sizeof(WORD));
         }
-        if (scanline >= imagey && scanline < imagey + h)
+        bool imageRow = scanline >= iy && scanline < iy + h;
+        if (imageRow)
         {
             // printf("Drawing image at scanline %d, imagey %d, h %d imagey + h %d\n", scanline, imagey, h, imagey + h);
             //  copy image row into worklinerom
-            auto rowOffset = (scanline - imagey) * w;
-            memcpy(WorkLineRom + imagex, imagebuffer + rowOffset, w * sizeof(uint16_t));
-            offset = w;
+            auto rowOffset = (scanline - iy) * w;
+            memcpy(WorkLineRom + ix, imagebuffer + rowOffset, copyw * sizeof(uint16_t));
+            offset = ix + copyw;
         }
         else
         {
             // avoid garbeled text when image is smaller than 120 pixels high
             if (scanline < 120)
             {
-                offset = w;
+                offset = ix + copyw;
+            }
+        }
+        if (!moving)
+        {
+            // Nothing else draws left of the text: the blank border beside the image,
+            // or the whole width of it above and below.
+            int end = imageRow ? ix : offset;
+            for (int x = 0; x < end; x++)
+            {
+                WorkLineRom[x] = NesMenuPalette[s_marginColor];
             }
         }
     }
     // Only show text when not in screensaver mode (imagex and imagey are 0)
-    if (imagex == 0 && imagey == 0)
+    if (imagex == 0 && imagey == 0 && offset < SCREENWIDTH)
     {
         RomSelect_DrawLine(scanline, selectedRow, offset);
     }
@@ -719,7 +760,7 @@ void DrawScreen(int selectedRow, int w = 0, int h = 0, uint16_t *imagebuffer = n
 {
     const char *spaces = "                   ";
     char tmpstr[24];
-    char s[SCREEN_COLS + 1];
+    char s[MAX_SCREEN_COLS + 1];
     char buttonLabel1[2];
     char buttonLabel2[2];
     getButtonLabels(buttonLabel1, buttonLabel2);
@@ -795,6 +836,7 @@ void DrawScreen(int selectedRow, int w = 0, int h = 0, uint16_t *imagebuffer = n
 
 void ClearScreen(int color)
 {
+    s_marginColor = color;
     for (auto i = 0; i < SCREENBUFCELLS; i++)
     {
         screenBuffer[i].bgcolor = color;
@@ -851,7 +893,7 @@ static const char *getVersionString(char *buf, size_t bufsize, bool showYear = f
 void displayRoms(Frens::RomLister &romlister, int startIndex)
 {
     char buffer[ROMLISTER_MAXPATH + 4];
-    char s[SCREEN_COLS + 1];
+    char s[MAX_SCREEN_COLS + 1];
     auto y = STARTROW;
     auto entries = romlister.GetEntries();
     ClearScreen(settings.bgcolor);
@@ -1205,7 +1247,7 @@ static void fillRect(int x, int y, int w, int h, int color)
 // false to back out (B: Undo). Modeled on showDialogYesNo.
 static bool showOverclockWarning(uint32_t targetMHz, vreg_voltage targetVoltage)
 {
-    char msg[SCREEN_COLS + 1];
+    char msg[MAX_SCREEN_COLS + 1];
     char voltStr[10];
     formatVregVoltage(targetVoltage, voltStr, sizeof(voltStr));
 
@@ -1421,14 +1463,24 @@ static const char *ctPadTypeName(uint8_t type)
 }
 
 static const char *const ctPadTop = ".------------------------------------.";
-static const char *const ctPadMid = "|                                    |";
+// putText collapses runs of real spaces; '_' is drawn as a space and is not collapsed.
+static const char *const ctPadMid = "|____________________________________|";
 static const char *const ctPadBot = "'------------------------------------'";
 
 static void ctDrawSourceRow(int row, int src, int active, const char *status)
 {
-    char line[SCREEN_COLS + 1];
+    char line[MAX_SCREEN_COLS + 1];
     snprintf(line, sizeof(line), "%c %-5s %s", (src == active) ? '>' : ' ', ctSrcNames[src], status);
     line[SCREEN_COLS - 1] = '\0'; // drawn at col 1; putText does not clip at end of row
+    // Keep the padding: the names line up only if the blank marker and the %-5s
+    // spaces survive putText, which collapses runs of real spaces.
+    for (char *c = line; *c; c++)
+    {
+        if (*c == ' ')
+        {
+            *c = '_';
+        }
+    }
     putText(1, row, line, (src == active) ? CGREEN : settings.fgcolor, settings.bgcolor);
 }
 
@@ -1441,7 +1493,7 @@ static void showControllerTestScreen()
     bool seen[CT_SRC_COUNT] = {false};
     int active = -1;
     int holdFrames = 0;
-    char line[SCREEN_COLS + 1];
+    char line[MAX_SCREEN_COLS + 1];
 
     waitForNoButtonPress(); // absorb the A press that opened the screen
     while (true)
@@ -1501,22 +1553,25 @@ static void showControllerTestScreen()
             putText(1, 2, line, settings.fgcolor, settings.bgcolor);
         }
 
-        putText(1, 5, ctPadTop, settings.fgcolor, settings.bgcolor);
-        putText(1, 6, ctPadMid, settings.fgcolor, settings.bgcolor);
-        putText(1, 7, ctPadMid, settings.fgcolor, settings.bgcolor);
-        putText(1, 8, ctPadMid, settings.fgcolor, settings.bgcolor);
-        putText(1, 9, ctPadBot, settings.fgcolor, settings.bgcolor);
+        // The pad is 38 wide: column 1 on the full screen, column 0 when the overscan
+        // setting takes a column off each side. ctButtons columns assume column 1.
+        const int padCol = centerColClamped(strlen(ctPadTop));
+        putText(padCol, 5, ctPadTop, settings.fgcolor, settings.bgcolor);
+        putText(padCol, 6, ctPadMid, settings.fgcolor, settings.bgcolor);
+        putText(padCol, 7, ctPadMid, settings.fgcolor, settings.bgcolor);
+        putText(padCol, 8, ctPadMid, settings.fgcolor, settings.bgcolor);
+        putText(padCol, 9, ctPadBot, settings.fgcolor, settings.bgcolor);
         uint16_t shown = (active >= 0) ? cur[active] : 0;
         for (const auto &b : ctButtons)
         {
             const char *label = ctLabel(b, padType);
             if (label == nullptr)
             {
-                putText(b.col, b.row, "  -  ", settings.fgcolor, settings.bgcolor); // not on a NES pad
+                putText(b.col + padCol - 1, b.row, "__-__", settings.fgcolor, settings.bgcolor); // not on a NES pad
                 continue;
             }
             bool on = (shown & b.mask) != 0;
-            putText(b.col, b.row, label, on ? CWHITE : settings.fgcolor, on ? CGREEN : settings.bgcolor);
+            putText(b.col + padCol - 1, b.row, label, on ? CWHITE : settings.fgcolor, on ? CGREEN : settings.bgcolor);
         }
         if (padType == NESPAD_TYPE_UNKNOWN && (active == CT_SRC_GPIO1 || active == CT_SRC_GPIO2))
         {
@@ -1601,7 +1656,7 @@ static bool showUsbDriveScreen()
     // HW_CONFIG 10 has no NES port either, so B is not always reachable.
     constexpr uint32_t noHostTimeoutMs = 20000;
     char buttonLabel1[10], buttonLabel2[10];
-    char line[SCREEN_COLS + 1];
+    char line[MAX_SCREEN_COLS + 1];
     DWORD pad;
 
     waitForNoButtonPress(); // absorb the A press that opened the screen
@@ -1829,6 +1884,9 @@ void DisplayFatalError(char *error)
 void showSplashScreen()
 {
     DWORD PAD1_Latch;
+    // Every emulator lays its splash out for all 30 rows. Its text already stays off the
+    // edges; only the colored border is drawn there.
+    menuApplyOverscan(0);
     splash();
     {
         char versionStr[30];
@@ -1847,6 +1905,7 @@ void showSplashScreen()
         RomSelect_PadState(&PAD1_Latch);
         if (PAD1_Latch > 0 || (frameCount - startFrame) > 1000)
         {
+            menuApplyOverscan(settings.flags.menuOverscan);
             return;
         }
         if ((frameCount % 30) == 0)
@@ -2076,7 +2135,7 @@ void screenSaver()
 /// @return 0: Do nothing, 1: start game, 2: start screensaver
 int showartwork(uint32_t crc, FSIZE_t romsize)
 {
-    char info[SCREEN_COLS + 1];
+    char info[MAX_SCREEN_COLS + 1];
     char gamename[64];
     char releaseDate[16]; // 19900212T000000
     char developer[64];   // Nintendo
@@ -2684,6 +2743,7 @@ bool showSaveStateMenu(int (*savestatefunc)(const char *path), int (*loadstatefu
 #endif
 
     screenBuffer = (charCell *)Frens::f_malloc(screenbufferSize);
+    menuApplyOverscan(settings.flags.menuOverscan);
     auto crc = Frens::getCrcOfLoadedRom();
 #if !HSTX
     margintop = dvi_->getBlankSettings().top;
@@ -3224,7 +3284,7 @@ static int showRecentGamesMenu(char *outPath, size_t outPathSize)
 
     auto redraw = [&](int confirmIndex = -1)
     {
-        char linebuf[SCREEN_COLS + 8];
+        char linebuf[MAX_SCREEN_COLS + 8];
         ClearScreen(settings.bgcolor);
         getButtonLabels(buttonLabel1, buttonLabel2);
         const char *title = "-- Recently Played --";
@@ -3273,9 +3333,16 @@ static int showRecentGamesMenu(char *outPath, size_t outPathSize)
             }
             putText(1, STARTROW + i, linebuf, fg, bg);
         }
+        // Below the last entry. Normally at ENDROW - 1; one row lower when the overscan
+        // setting shortens the screen, or it would cover the last of the entries.
+        int separatorRow = ENDROW - 1;
+        if (separatorRow < STARTROW + RECENTGAMES_MAX)
+        {
+            separatorRow = STARTROW + RECENTGAMES_MAX;
+        }
         for (auto i = 1; i < SCREEN_COLS - 1; i++)
         {
-            putText(i, ENDROW - 1, "-", settings.fgcolor, settings.bgcolor);
+            putText(i, separatorRow, "-", settings.fgcolor, settings.bgcolor);
         }
 
         if (confirmIndex >= 0)
@@ -3456,7 +3523,7 @@ static int menuPickFromList(const char *title, const char *const *items, int n, 
         }
 
         getButtonLabels(buttonLabel1, buttonLabel2);
-        char help[SCREEN_COLS];
+        char help[MAX_SCREEN_COLS];
         snprintf(help, sizeof(help), "%s:Select__%s:Cancel", buttonLabel1, buttonLabel2);
         putText(centerColClamped(strlen(help)), SCREEN_ROWS - 3, help, settings.fgcolor, settings.bgcolor);
 
@@ -3582,7 +3649,7 @@ __attribute__((noinline)) static void diskMenuOverlay(int drive)
             if (strcasecmp(items[i], cur) == 0) { sel = i; break; }
     }
 
-    char title[SCREEN_COLS];
+    char title[MAX_SCREEN_COLS];
     snprintf(title, sizeof(title), "Mount into DSK%d:", drive + 1);
 
     int choice = menuPickFromList(title, items, count, sel);
@@ -3605,7 +3672,7 @@ __attribute__((noinline)) static void diskMenuOverlay(int drive)
         {
             // No keyboard to type a name with. Show the one that will be used and ask -
             // formatting a disk without saying so first is too much of a surprise.
-            char msg[SCREEN_COLS];
+            char msg[MAX_SCREEN_COLS];
             snprintf(msg, sizeof(msg), "Create disk %s?", label);
             go = showDialogYesNo(msg);
         }
@@ -3680,6 +3747,7 @@ bool menuCassettePrompt(int wantRecord)
     int margintop = 0, marginbottom = 0;
     screenBuffer = (charCell *)Frens::f_malloc(screenbufferSize);
     if (!screenBuffer) return false;
+    menuApplyOverscan(settings.flags.menuOverscan);
 #if !HSTX
     margintop = dvi_->getBlankSettings().top;
     marginbottom = dvi_->getBlankSettings().bottom;
@@ -3788,6 +3856,7 @@ int showSettingsMenu(bool calledFromGame)
         turnOffAllLeds();
 #endif
 #endif
+        menuApplyOverscan(settings.flags.menuOverscan);
 #if !HSTX
         margintop = dvi_->getBlankSettings().top;
         marginbottom = dvi_->getBlankSettings().bottom;
@@ -3866,6 +3935,7 @@ int showSettingsMenu(bool calledFromGame)
         }
         if (i == MOPT_SPRITE_LIMIT) continue;  // already handled above
         if (i == MOPT_RECENT_GAMES) continue;  // already handled above
+        if (i == MOPT_MENU_OVERSCAN) continue; // listed with the menu colors, below
         // The three action entries that close the list are appended after this
         // loop in a fixed order, so skip them here.
         if (i == MOPT_CONTROLLER_TEST) continue;
@@ -3884,6 +3954,13 @@ int showSettingsMenu(bool calledFromGame)
             {
                 visibleIndices[visibleCount++] = i;
             }
+        }
+        // Overscan in menu goes right after the menu colors: it is appended at the end
+        // of the enum, but it belongs with them. Forced visible for the same reason as
+        // MOPT_RECENT_GAMES above; only -1 hides it.
+        if (i == MOPT_FONT_BACK_COLOR && g_settings_visibility[MOPT_MENU_OVERSCAN] >= 0)
+        {
+            visibleIndices[visibleCount++] = MOPT_MENU_OVERSCAN;
         }
     }
     // Fixed tail of the list: Controller test, Enter BOOTSEL mode, USB drive
@@ -3919,21 +3996,23 @@ int showSettingsMenu(bool calledFromGame)
     //   rowStartOptions .. rowStartOptions+optionWindowSize-1 (option slots),
     //   downIndicatorRow,
     //   blank,
-    //   actionRowScreen (SAVE / CANCEL / DEFAULT, fixed),
-    //   blank,
-    //   paletteStartRow .. paletteStartRow+3 (4x16 palette),
+    //   actionRowScreen (SAVE / CANCEL / DEFAULT),
     //   blank,
     //   helpRowScreen (option description),
-    //   ... free ...,
     //   bottom-anchored hint lines at SCREEN_ROWS-3 .. SCREEN_ROWS-1.
-    const int optionWindowSize  = 12;
+    // The option window takes every row the others leave free: 19 on the full screen, 17 when
+    // the overscan setting blanks the top and bottom row. That setting is previewed while the
+    // menu is open, so redraw() recomputes the rows below rowStartOptions on every frame.
+    // The color palette is not part of the layout: while one of the menu colors is highlighted
+    // it is drawn in the four rows above the action row, over whatever is there.
     const int rowStartOptions   = 3;
     const int upIndicatorRow    = rowStartOptions - 1;
-    const int downIndicatorRow  = rowStartOptions + optionWindowSize;
-    const int actionRowScreen   = downIndicatorRow + 2;
-    const int paletteStartRow   = actionRowScreen + 2;
+    int optionWindowSize        = 0;
+    int downIndicatorRow        = 0;
+    int actionRowScreen         = 0;
+    int helpRowScreen           = 0;
+    int paletteStartRow         = 0;
     const int paletteRowCount   = 4;
-    const int helpRowScreen     = paletteStartRow + paletteRowCount + 1;
     int  selectedOptionIndex = 0;                   // logical 0..visibleCount-1
     int  firstVisibleOption  = 0;                   // scroll offset
     bool onActionRow         = (visibleCount == 0); // no options -> start on action row
@@ -3941,10 +4020,49 @@ int showSettingsMenu(bool calledFromGame)
     exitMenu = false;
     bool applySettings = false; // true when SAVE, false when CANCEL
     bool mediaChanged = false;  // a PC wrote to the card in USB drive mode
+    auto isColorOption = [](int opt)
+    {
+        return opt == MOPT_FONT_COLOR || opt == MOPT_FONT_BACK_COLOR;
+    };
     // lambda to redraw the entire menu
     auto redraw = [&]()
     {
         getButtonLabels(buttonLabel1, buttonLabel2);
+        // Preview the overscan setting while it is being changed; on exit it goes back
+        // to the saved value.
+        menuApplyOverscan(working.flags.menuOverscan);
+        optionWindowSize = SCREEN_ROWS - 11;
+        downIndicatorRow = rowStartOptions + optionWindowSize;
+        actionRowScreen  = downIndicatorRow + 2;
+        helpRowScreen    = actionRowScreen + 2;
+        paletteStartRow  = actionRowScreen - paletteRowCount;
+        // Keep the scroll offset valid for the window size just computed. The entries that
+        // must stay on screen are the selection, or on a menu color both color rows (they are
+        // adjacent in visibleIndices) - and then above the palette, which covers the last
+        // option rows while it is up.
+        const int maxFirst = (visibleCount > optionWindowSize) ? visibleCount - optionWindowSize : 0;
+        if (firstVisibleOption > maxFirst)
+            firstVisibleOption = maxFirst;
+        bool colorSelected = false;
+        int keepFirst = selectedOptionIndex;
+        int keepLast  = selectedOptionIndex;
+        if (!onActionRow && visibleCount > 0)
+        {
+            colorSelected = isColorOption(visibleIndices[selectedOptionIndex]);
+            int keepWindow = optionWindowSize;
+            if (colorSelected)
+            {
+                if (keepFirst > 0 && isColorOption(visibleIndices[keepFirst - 1]))
+                    keepFirst--;
+                if (keepLast < visibleCount - 1 && isColorOption(visibleIndices[keepLast + 1]))
+                    keepLast++;
+                keepWindow -= downIndicatorRow - paletteStartRow; // option rows under the palette
+            }
+            if (keepFirst < firstVisibleOption)
+                firstVisibleOption = keepFirst;
+            if (keepLast >= firstVisibleOption + keepWindow)
+                firstVisibleOption = keepLast - keepWindow + 1;
+        }
         ClearScreen(CWHITE); // Always white background
 
         int row = 0;
@@ -4129,6 +4247,23 @@ int showSettingsMenu(bool calledFromGame)
                 label = "Menu Font Back Color";
                 snprintf(valueBuf, sizeof(valueBuf), "%d", working.bgcolor);
                 value = valueBuf;
+                break;
+            }
+            case MenuSettingsIndex::MOPT_MENU_OVERSCAN:
+            {
+                label = "Overscan fix in menu";
+                switch (working.flags.menuOverscan)
+                {
+                case 0:
+                    value = "Off";
+                    break;
+                case 1:
+                    value = "Rows";
+                    break;
+                default:
+                    value = "Rows & columns";
+                    break;
+                }
                 break;
             }
             case MenuSettingsIndex::MOPT_FRUITJAM_VUMETER:
@@ -4363,40 +4498,43 @@ int showSettingsMenu(bool calledFromGame)
             }
             row++;
         }
-        // 64-color palette grid (4 rows x 16 columns). Each block is a space with fg=bg=colorIndex
-        row = paletteStartRow;
-        int blocksPerRow = 16;
-        int blockRows = paletteRowCount;
-        int gridWidth = blocksPerRow; // one char per block
-        int gridStartCol = (SCREEN_COLS - gridWidth) / 2;
-        if (gridStartCol < 0)
-            gridStartCol = 0;
-        for (int pr = 0; pr < blockRows; ++pr)
+        // 64-color palette grid (4 rows x 16 columns), only while a menu color is highlighted.
+        // It sits directly above the action row, over the last option rows - the scroll clamp
+        // above keeps the color rows themselves clear of it. Each block is a space with
+        // fg=bg=colorIndex.
+        if (colorSelected)
         {
-            char tmp[4];
-            snprintf(tmp, sizeof(tmp), "%02d", pr * blocksPerRow);
-            putText(gridStartCol - 2, row, tmp, CBLACK, CWHITE); // row label
-            for (int pc = 0; pc < blocksPerRow; ++pc)
+            row = paletteStartRow;
+            fillRect(0, row, SCREEN_COLS, paletteRowCount, CWHITE); // no option text beside it
+            int blocksPerRow = 16;
+            int gridStartCol = centerColClamped(blocksPerRow);
+            for (int pr = 0; pr < paletteRowCount; ++pr)
             {
-                int colorIndex = pr * blocksPerRow + pc;
-                if (colorIndex < 64)
+                char tmp[4];
+                snprintf(tmp, sizeof(tmp), "%02d", pr * blocksPerRow);
+                putText(gridStartCol - 2, row, tmp, CBLACK, CWHITE); // row label
+                for (int pc = 0; pc < blocksPerRow; ++pc)
                 {
-                    putText(gridStartCol + pc, row, " ", colorIndex, colorIndex);
+                    int colorIndex = pr * blocksPerRow + pc;
+                    if (colorIndex < 64)
+                    {
+                        putText(gridStartCol + pc, row, " ", colorIndex, colorIndex);
+                    }
                 }
+                // FG= after first palette row, BG= after second
+                int afterGrid = gridStartCol + blocksPerRow + 1;
+                if (pr == 0)
+                {
+                    snprintf(line, sizeof(line), "FG=%02d", working.fgcolor);
+                    putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
+                }
+                else if (pr == 1)
+                {
+                    snprintf(line, sizeof(line), "BG=%02d", working.bgcolor);
+                    putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
+                }
+                row++;
             }
-            // FG= after first palette row, BG= after second
-            int afterGrid = gridStartCol + blocksPerRow + 1;
-            if (pr == 0)
-            {
-                snprintf(line, sizeof(line), "FG=%02d", working.fgcolor);
-                putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
-            }
-            else if (pr == 1)
-            {
-                snprintf(line, sizeof(line), "BG=%02d", working.bgcolor);
-                putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
-            }
-            row++;
         }
         // Help text (dynamic button labels)
 
@@ -4456,8 +4594,10 @@ int showSettingsMenu(bool calledFromGame)
         if (col < 0)
             col = 0;
         putText(col, row++, line, CBLACK, CWHITE);
-        snprintf(line, sizeof(line),
-                 "Press %s to go back.", buttonLabel2);
+        if (onActionRow)
+            snprintf(line, sizeof(line), "Press %s to go back.", buttonLabel2);
+        else
+            snprintf(line, sizeof(line), "%s: Back, SELECT: Go to Save", buttonLabel2);
         hlen = (int)strlen(line);
         col = (SCREEN_COLS - hlen) / 2;
         if (col < 0)
@@ -4543,7 +4683,13 @@ int showSettingsMenu(bool calledFromGame)
                 continue;
             }
 
-            if (pad & UP)
+            if (pad & SELECT)
+            {
+                // shortcut: jump straight to SAVE on the action row
+                onActionRow = true;
+                actionSubSelect = 0;
+            }
+            else if (pad & UP)
             {
                 const int maxFirst = (visibleCount > optionWindowSize)
                                          ? visibleCount - optionWindowSize
@@ -4885,6 +5031,17 @@ int showSettingsMenu(bool calledFromGame)
                         working.flags.removeSpriteLimit = !working.flags.removeSpriteLimit;
                         break;
                     }
+                    case MOPT_MENU_OVERSCAN:
+                    {
+                        // Off -> Rows -> Rows & columns
+                        int m = working.flags.menuOverscan;
+                        if (right)
+                            m = (m + 1) % 3;
+                        else
+                            m = (m == 0) ? 2 : m - 1;
+                        working.flags.menuOverscan = m;
+                        break;
+                    }
                     case MOPT_FDS_DISK_SWAP:
                     {
                         if (!s_fdsHooks || !s_fdsHooks->get_num_sides) break;
@@ -5058,6 +5215,8 @@ int showSettingsMenu(bool calledFromGame)
     {
         rval = 1;
     }
+    // Drop the preview: the saved value if SAVE was chosen, the old one otherwise.
+    menuApplyOverscan(settings.flags.menuOverscan);
     Frens::f_free(workingDyn);
     // restore contents of swap file back to altScreenbuffer when not nullptr
     if (calledFromGame)
@@ -5102,6 +5261,22 @@ void setclockInFlashAndReboot(uint32_t freq, vreg_voltage voltage)
     printf("Writing clock params to flash at 0x%08X: freq %d kHz, voltage %d\n", (unsigned int)flashparamInFlash, flashParams.cpuFreqKHz, (int)flashParams.voltage);
 }
 
+// Keeps the highlighted rom on the list after the list got fewer rows, which is what
+// the "Overscan in menu" setting does. Moves the list instead of the highlight, so
+// the same rom stays selected.
+static void clampBrowserSelection()
+{
+    if (settings.selectedRow < STARTROW)
+    {
+        settings.selectedRow = STARTROW;
+    }
+    else if (settings.selectedRow > ENDROW)
+    {
+        settings.firstVisibleRowINDEX += settings.selectedRow - ENDROW;
+        settings.selectedRow = ENDROW;
+    }
+}
+
 void menu(const char *title, char *errorMessage, bool isFatal, bool showSplash, const char *allowedExtensions, char *rompath)
 {
     FRESULT fr;
@@ -5134,10 +5309,8 @@ void menu(const char *title, char *errorMessage, bool isFatal, bool showSplash, 
     //
     menutitle = (char *)title;
     int totalFrames = -1;
-    if (settings.selectedRow <= 0)
-    {
-        settings.selectedRow = STARTROW;
-    }
+    menuApplyOverscan(settings.flags.menuOverscan);
+    clampBrowserSelection();
     globalErrorMessage = errorMessage;
 
     printf("Starting Menu\n");
@@ -5508,6 +5681,7 @@ void menu(const char *title, char *errorMessage, bool isFatal, bool showSplash, 
                     startRecent = true;
                     break;
                 }
+                clampBrowserSelection(); // the overscan setting may have changed the page size
                 displayRoms(romlister, settings.firstVisibleRowINDEX);
                 totalFrames = -1; // re-seed: frames spent in the settings menu are not idle time
                 continue;         // skip other processing this frame
