@@ -4594,8 +4594,10 @@ int showSettingsMenu(bool calledFromGame)
         if (col < 0)
             col = 0;
         putText(col, row++, line, CBLACK, CWHITE);
-        snprintf(line, sizeof(line),
-                 "Press %s to go back.", buttonLabel2);
+        if (onActionRow)
+            snprintf(line, sizeof(line), "Press %s to go back.", buttonLabel2);
+        else
+            snprintf(line, sizeof(line), "%s: Back, SELECT: Go to Save", buttonLabel2);
         hlen = (int)strlen(line);
         col = (SCREEN_COLS - hlen) / 2;
         if (col < 0)
@@ -4681,7 +4683,13 @@ int showSettingsMenu(bool calledFromGame)
                 continue;
             }
 
-            if (pad & UP)
+            if (pad & SELECT)
+            {
+                // shortcut: jump straight to SAVE on the action row
+                onActionRow = true;
+                actionSubSelect = 0;
+            }
+            else if (pad & UP)
             {
                 const int maxFirst = (visibleCount > optionWindowSize)
                                          ? visibleCount - optionWindowSize
