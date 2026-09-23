@@ -4261,7 +4261,7 @@ int showSettingsMenu(bool calledFromGame)
                     value = "Rows";
                     break;
                 default:
-                    value = "Rows and columns";
+                    value = "Rows & columns";
                     break;
                 }
                 break;
@@ -5025,7 +5025,7 @@ int showSettingsMenu(bool calledFromGame)
                     }
                     case MOPT_MENU_OVERSCAN:
                     {
-                        // Off -> Rows -> Rows and columns
+                        // Off -> Rows -> Rows & columns
                         int m = working.flags.menuOverscan;
                         if (right)
                             m = (m + 1) % 3;
