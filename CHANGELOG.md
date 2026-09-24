@@ -1,5 +1,27 @@
 # Release notes
 
+## 23/9/2026
+
+- **Overscan in menu setting**: for TVs that cut off the screen edges, the menu can leave the top and bottom rows, and optionally the first and last columns, blank. Previewed live in the settings menu.
+- **Settings menu shows more options at once**: the color palette only appears while a menu color option is selected, freeing room for 19 option rows instead of 12.
+- **NES: Sprite Limit (8 per line) setting**: switch the limit off for less sprite flicker. On by default.
+- **Fix: out-of-memory on boards without PSRAM** when starting a large game (e.g. MMC5) that was already in flash.
+- **Cyrillic font** data added.
+- **TI-99/4A support**: cassette and disk selection from the menu, a text entry prompt for naming tapes, a Serial keyboard setting, and multi-file cartridges shown as a single menu entry.
+- **Outrun** added as an emulator type.
+- **USB drive mode**: a new settings entry that makes the SD card visible on a PC over USB, so games can be copied without removing the card. Available from the ROM browser only. On boards without a framebuffer (RP2040) the screen goes black while in this mode.
+- **Recently played list**: the last 20 games, opened with X in the ROM browser or from the settings menu.
+- **Faster start on boards without PSRAM**: a game that is already in flash is no longer flashed again.
+- **Fix: RP2040 clone boards crashing** when overclocking, caused by their slower flash chips.
+- **Fix: DVI monitors showing no picture** since v0.43. DVI mode outputs real DVI again.
+- **Fix: overclock setting not being kept** on pico_snesPlus after a reboot.
+- **Fix: occasional PSRAM initialization issue** on RP2350 boards.
+- **Fix: settings menu result getting lost**, e.g. starting a game from the recently played list did nothing.
+- **Genesis pads**: C opens the recently played list.
+- Minimum core voltage for stored overclock settings raised from 1.20V to 1.30V.
+- Scanline setting is reset to its default with the other settings.
+- README: corrected the D3/D4 GPIO pins of the second NES controller port.
+
 ## 12/8/2026
 
 - **Fix: Controller Test named the buttons of a GPIO pad wrong whenever the port is talking to a NES pad instead of a SNES pad.** The screen labelled the 12-bit word in SNES serial order unconditionally, but a NES pad shifts out the same first 8 bits with different meanings: bit0 is A, not B, and bit1 is B, not Y. This surfaced with a **SNES->NES adapter cable that has conversion logic built in**: it presents the pad to the port as an 8-button NES pad, reporting A and X on bit0, B and Y on bit1 (X/Y acting as turbo duplicates), and no L/R at all — so the screen showed A and X as "B", and B and Y as "Y". The pad type is now tracked per port in the new `nespad_padtype[]`: NES when the trailing ID nibble reads all-ones, SNES as soon as A/X/L/R appears on the wire. A NES pad gets NES names and its A/X/L/R cells are blanked; a SNES pad gets SNES names. An unproven port (an 8-bit device that idles the data line high is indistinguishable from an idle SNES pad) is named as a NES pad but keeps A/X/L/R on screen, so pressing one of them switches to SNES names.
