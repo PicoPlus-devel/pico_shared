@@ -61,11 +61,17 @@ static inline int pb_glyph_index(char c)
     return (i >= 0 && i < PB_GLYPH_COUNT) ? i : 0;
 }
 
+#if PROGRESS_BAR_IN_SRAM
+#define PB_FUNC(name) __not_in_flash_func(name)
 static PbGlyphs __not_in_flash("pb_glyphs") pb_glyphs = pb_make_glyphs();
+#else
+#define PB_FUNC(name) name
+static const PbGlyphs pb_glyphs = pb_make_glyphs();   /* .rodata, in flash */
+#endif
 
 // The framebuffer both entry points paint into, or nullptr when this build
 // has none to paint (RP2040 PicoDVI line-stream mode).
-static uint16_t *__not_in_flash_func(pb_framebuffer)(void)
+static uint16_t *PB_FUNC(pb_framebuffer)(void)
 {
 #if HSTX
     return (uint16_t *)hstx_getframebuffer();
@@ -79,7 +85,7 @@ static uint16_t *__not_in_flash_func(pb_framebuffer)(void)
 
 // Blit one glyph. Bit 0 of a font slice is the leftmost pixel (matches
 // DrawScreen() and ic_fb_draw_text_centered()).
-static void __not_in_flash_func(pb_draw_glyph)(uint16_t *fb, int x, int y, int gi,
+static void PB_FUNC(pb_draw_glyph)(uint16_t *fb, int x, int y, int gi,
                                                uint16_t fg, uint16_t bg)
 {
     for (int r = 0; r < FONT_CHAR_HEIGHT; r++) {
@@ -97,7 +103,7 @@ static void __not_in_flash_func(pb_draw_glyph)(uint16_t *fb, int x, int y, int g
 // is in SRAM. This function on core0 is also called between bootrom flash
 // calls (XIP is restored by then) but we keep it in SRAM anyway to remove
 // every code-path question.
-extern "C" void __not_in_flash_func(progress_bar_draw)(uint32_t numer, uint32_t denom,
+extern "C" void PB_FUNC(progress_bar_draw)(uint32_t numer, uint32_t denom,
                                                       uint16_t col_fill,
                                                       uint16_t col_empty,
                                                       uint16_t col_border)
@@ -153,7 +159,7 @@ extern "C" void __not_in_flash_func(progress_bar_draw)(uint32_t numer, uint32_t 
 // tail of a longer one behind. Same SRAM-only constraints as the bar -- the
 // glyph table is in .data and nothing here reads flash -- so it is safe to
 // call from a flash-write progress callback.
-void __not_in_flash_func(progress_bar_draw_status)(const char *text,
+void PB_FUNC(progress_bar_draw_status)(const char *text,
                                                    uint16_t col_text,
                                                    uint16_t col_bg)
 {

@@ -23,6 +23,28 @@
 
 #include <stdint.h>
 
+/*
+ * PROGRESS_BAR_IN_SRAM (default 1)
+ *
+ * Keeps the renderer and its glyph table in SRAM, which is what a caller
+ * needs if it draws while XIP is disabled -- pico-bootLoader's uf2 loader
+ * calls back from inside the flash write. That costs ~1.7 KB of SRAM
+ * (760 B glyph table + ~640 B of code + the caller's own callback).
+ *
+ * Set to 0 when every call happens with XIP up. pico_snesPlus does: its
+ * romflash.cpp restores QMI M0 to a safe timing inside the same
+ * interrupts-off window as each erase/program, so the progress callback
+ * always runs against healthy flash. On that board SRAM is the scarce
+ * resource -- the render strips and GFX LocalState spill to PSRAM when the
+ * heap runs out, which costs frame rate -- so the 1.7 KB is better spent
+ * on the emulator.
+ *
+ * Getting this wrong is a hard fault during a flash write, not a warning.
+ */
+#ifndef PROGRESS_BAR_IN_SRAM
+#define PROGRESS_BAR_IN_SRAM 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
