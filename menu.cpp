@@ -3739,6 +3739,105 @@ static bool cassettePickTape()
 }
 
 
+// ---------------------------------------------------------------------------
+// Prompts usable from a running game (i.e. after menu() has returned and freed
+// its screen buffer). Both allocate their own, the way menuCassettePrompt does.
+//
+// menuNoticeScreen() deliberately leaves its text on screen: it renders into
+// the framebuffer and returns, so a caller that is about to do something long
+// and un-interruptible -- writing a ROM to flash, say -- can put a message up
+// and then keep updating only a progress bar over the top of it.
+// ---------------------------------------------------------------------------
+static bool menuScreenBegin(int *margintop, int *marginbottom)
+{
+    screenBuffer = (charCell *)Frens::f_malloc(screenbufferSize);
+    if (!screenBuffer) return false;
+    menuApplyOverscan(settings.flags.menuOverscan);
+#if !HSTX
+    *margintop = dvi_->getBlankSettings().top;
+    *marginbottom = dvi_->getBlankSettings().bottom;
+    dvi_->getBlankSettings().top = 0;
+    dvi_->getBlankSettings().bottom = 0;
+#else
+    (void)margintop; (void)marginbottom;
+#endif
+    scaleMode8_7_ = Frens::applyScreenMode(ScreenMode::NOSCANLINE_1_1);
+    return true;
+}
+
+static void menuScreenEnd(int margintop, int marginbottom, bool restoreMode)
+{
+    Frens::f_free((void *)screenBuffer);
+    screenBuffer = nullptr;
+    if (restoreMode)
+        scaleMode8_7_ = Frens::applyScreenMode(settings.screenMode);
+#if !HSTX
+    if (!Frens::isFrameBufferUsed())
+    {
+        dvi_->getBlankSettings().top = margintop;
+        dvi_->getBlankSettings().bottom = marginbottom;
+    }
+#else
+    (void)margintop; (void)marginbottom;
+#endif
+}
+
+bool menuConfirmPrompt(const char *line1, const char *line2, const char *line3)
+{
+    int mt = 0, mb = 0;
+    if (!menuScreenBegin(&mt, &mb)) return false;
+
+    ClearScreen(settings.bgcolor);
+    int row = SCREEN_ROWS / 2 - 3;
+    if (line1) putText(centerColClamped(strlen(line1)), row++, line1, settings.fgcolor, settings.bgcolor);
+    if (line2) putText(centerColClamped(strlen(line2)), row++, line2, settings.fgcolor, settings.bgcolor);
+    if (line3) putText(centerColClamped(strlen(line3)), row++, line3, settings.fgcolor, settings.bgcolor);
+
+    char tmp[16];
+    getButtonLabels(buttonLabel1, buttonLabel2);
+    row++;
+    snprintf(tmp, sizeof(tmp), "%s:Yes", buttonLabel1);
+    putText(centerColClamped(strlen(tmp)), row++, tmp, settings.fgcolor, settings.bgcolor);
+    snprintf(tmp, sizeof(tmp), "%s:No_", buttonLabel2);
+    putText(centerColClamped(strlen(tmp)), row++, tmp, settings.fgcolor, settings.bgcolor);
+
+    waitForNoButtonPress();
+    bool yes = false;
+    DWORD waitPad;
+    while (true)
+    {
+        drawAllLines(-1);
+        RomSelect_PadState(&waitPad);
+        Menu_LoadFrame();
+        if (waitPad & A) { yes = true;  break; }
+        if (waitPad & B) { yes = false; break; }
+    }
+    waitForNoButtonPress();
+    menuScreenEnd(mt, mb, true);
+    return yes;
+}
+
+void menuNoticeScreen(const char *line1, const char *line2,
+                      const char *line3, const char *line4)
+{
+    int mt = 0, mb = 0;
+    if (!menuScreenBegin(&mt, &mb)) return;
+
+    ClearScreen(settings.bgcolor);
+    int row = SCREEN_ROWS / 2 - 5;
+    if (line1) putText(centerColClamped(strlen(line1)), row++, line1, settings.fgcolor, settings.bgcolor);
+    if (line2) putText(centerColClamped(strlen(line2)), row++, line2, settings.fgcolor, settings.bgcolor);
+    if (line3) putText(centerColClamped(strlen(line3)), row++, line3, settings.fgcolor, settings.bgcolor);
+    if (line4) putText(centerColClamped(strlen(line4)), row++, line4, settings.fgcolor, settings.bgcolor);
+    drawAllLines(-1);
+    Menu_LoadFrame();
+
+    /* Screen mode is deliberately NOT restored: the caller is about to draw a
+     * progress bar straight into this framebuffer and needs the geometry the
+     * text was laid out in. */
+    menuScreenEnd(mt, mb, false);
+}
+
 bool menuCassettePrompt(int wantRecord)
 {
     if (!s_cassetteHooks || !s_cassetteHooks->commit) return false;

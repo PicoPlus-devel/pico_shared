@@ -126,6 +126,14 @@ void menuSetDiskHooks(const MenuDiskHooks *hooks);
 // and frees screenBuffer itself, like showSettingsMenu(true).
 bool menuCassettePrompt(int wantRecord);
 
+// Prompts usable from a running game, after menu() has returned. Both allocate
+// their own screen buffer. menuConfirmPrompt returns true for Yes (A), false
+// for No (B). menuNoticeScreen renders and returns with the text still on
+// screen, for a caller that then draws a progress bar over it.
+bool menuConfirmPrompt(const char *line1, const char *line2, const char *line3);
+void menuNoticeScreen(const char *line1, const char *line2,
+                      const char *line3, const char *line4);
+
 // Modal single-line text entry, driven from the USB keyboard. `buf` is pre-filled with a
 // default and edited in place; returns true if the user confirmed with ENTER, false if
 // they cancelled with ESC. Requires a keyboard: callers should check

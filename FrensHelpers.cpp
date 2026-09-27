@@ -1106,7 +1106,16 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
             }
         }
 
-        void *pMem = Frens::f_malloc(filesize);
+        // Deliberately NOT Frens::f_malloc(): that panics on failure, which
+        // makes the error path just below unreachable. A ROM preload is a
+        // request for one huge contiguous block (7 MB for the biggest SNES
+        // carts) and lwmem allocates next-fit, so after a couple of games the
+        // arena can hold plenty of free bytes in total without holding that
+        // much in one run -- GetAvailableMemory() reports the sum, not the
+        // largest block, so the size check above passes and the allocation
+        // still fails. Returning nullptr lets the caller fall back (snesPlus
+        // runs such carts from XIP flash instead) rather than panicking.
+        void *pMem = PicoPlusPsram::getInstance().Malloc(filesize);
         if (!pMem)
         {
             snprintf(ErrorMessage, 40, "Cannot allocate %llu bytes in PSRAM\n", filesize);

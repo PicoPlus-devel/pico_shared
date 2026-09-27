@@ -13,6 +13,7 @@ hid_app.cpp
 nespad.cpp
 wiipad.cpp
 FrensFonts.cpp
+progress_bar.cpp
 #ffwrappers.cpp
 crc32.cpp
 vumeter.cpp
