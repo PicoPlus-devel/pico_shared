@@ -4365,6 +4365,23 @@ int showSettingsMenu(bool calledFromGame)
                 }
                 break;
             }
+            case MenuSettingsIndex::MOPT_GENESIS_PAD:
+            {
+                label = "Genesis pad";
+                switch (working.flags.genesisPad)
+                {
+                case 0:
+                    value = "Auto";
+                    break;
+                case 1:
+                    value = "3 button";
+                    break;
+                default:
+                    value = "6 button";
+                    break;
+                }
+                break;
+            }
             case MenuSettingsIndex::MOPT_FRUITJAM_VUMETER:
             {
                 label = "Fruit Jam VU Meter";
@@ -5139,6 +5156,17 @@ int showSettingsMenu(bool calledFromGame)
                         else
                             m = (m == 0) ? 2 : m - 1;
                         working.flags.menuOverscan = m;
+                        break;
+                    }
+                    case MOPT_GENESIS_PAD:
+                    {
+                        // Auto -> 3 button -> 6 button
+                        int m = working.flags.genesisPad;
+                        if (right)
+                            m = (m + 1) % 3;
+                        else
+                            m = (m == 0) ? 2 : m - 1;
+                        working.flags.genesisPad = m;
                         break;
                     }
                     case MOPT_FDS_DISK_SWAP:

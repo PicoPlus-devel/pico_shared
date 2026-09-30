@@ -1,5 +1,12 @@
 # Release notes
 
+## 30/9/2026
+
+- **Genesis pad setting** (Genesis only): Auto, 3 button or 6 button. New `genesisPad` flag taken from the spare bits, so saved settings stay valid and read as Auto.
+- **Fix: AliExpress SNES USB controller** (081f:e401): B did nothing until Y had been pressed once. The first press of B or Y now switches the pad to SNES mode.
+- **Genesis Mini 2 controller**: X, Y and Z are reported (`Button::X/Y/Z`). The bit positions still need checking on the controller.
+- **USB keyboard**: E reports `Button::Z`.
+
 ## 23/9/2026
 
 - **Overscan in menu setting**: for TVs that cut off the screen edges, the menu can leave the top and bottom rows, and optionally the first and last columns, blank. Previewed live in the settings menu.

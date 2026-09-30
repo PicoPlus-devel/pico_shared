@@ -229,6 +229,11 @@ extern "C"
                 inline static constexpr int Z = 0b00000001; // byte 6
                 inline static constexpr int MODE = 0b00010000;   // byte 7
                 inline static constexpr int START = 0b00100000;  // byte 7
+                // 6 button version (Genesis Mini 2): X, Y and Z as single bits.
+                // Not yet confirmed on the pad - check with PRINTFBUTTONS=1.
+                inline static constexpr int X6 = 0b10000000;     // byte 6
+                inline static constexpr int Y6 = 0b00010000;     // byte 6
+                inline static constexpr int Z6 = 0b00000001;     // byte 7
                 inline static constexpr int UP = 0;              // byte 5
                 inline static constexpr int DOWN = 0b11111111;   // byte 5
                 inline static constexpr int LEFT = 0;            // byte 4
@@ -683,8 +688,12 @@ extern "C"
                 uint8_t udb = r->byte2;
                 uint8_t lrb = r->byte1;
 
-                // When using AlieExpress SNES usb controller, activate SNES mode by pressing Y
-                if (r->byte6 & MantaPadReport::Button::Y)
+                // The AliExpress NES and SNES usb controllers share a VID/PID, so the pad
+                // starts in NES mode, where SNES B has no meaning. B and Y exist only on the
+                // SNES pad (the NES one reports its two buttons on the A and X bits), so the
+                // first press of either switches to SNES mode. This runs before the buttons
+                // are mapped below, so that first press already counts.
+                if (r->byte6 & (MantaPadReport::Button::B | MantaPadReport::Button::Y))
                 {
                     isManta[player] = 2;
                     gp.GamePadName = "Manta SNES";
@@ -765,6 +774,9 @@ extern "C"
                              ((r->byte7 & GenesisMiniReport::Button::C) ? io::GamePadState::Button::C : 0) |
                              (r->byte7 & GenesisMiniReport::Button::START ? io::GamePadState::Button::START : 0) |
                              (r->byte7 & GenesisMiniReport::Button::MODE ? io::GamePadState::Button::SELECT : 0) |
+                             (((r->byte6 & GenesisMiniReport::Button::X6) && pid == 0x0024) ? io::GamePadState::Button::X : 0) |
+                             (((r->byte6 & GenesisMiniReport::Button::Y6) && pid == 0x0024) ? io::GamePadState::Button::Y : 0) |
+                             (((r->byte7 & GenesisMiniReport::Button::Z6) && pid == 0x0024) ? io::GamePadState::Button::Z : 0) |
                              (r->byte5 == GenesisMiniReport::Button::UP ? io::GamePadState::Button::UP : 0) |
                              (r->byte5 == GenesisMiniReport::Button::DOWN ? io::GamePadState::Button::DOWN : 0) |
                              (r->byte4 == GenesisMiniReport::Button::LEFT ? io::GamePadState::Button::LEFT : 0) |
@@ -972,6 +984,9 @@ extern "C"
                                 break;
                             case HID_KEY_W:
                                 gp.buttons |= io::GamePadState::Button::R;
+                                break;
+                            case HID_KEY_E:
+                                gp.buttons |= io::GamePadState::Button::Z; // Genesis Z
                                 break;
                             case HID_KEY_ARROW_UP:
                                 gp.buttons |= io::GamePadState::Button::UP;

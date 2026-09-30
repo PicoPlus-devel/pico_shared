@@ -47,8 +47,9 @@ struct settings
         uint32_t serialKeyboard : 1;   // TI-99/4A only: 1 = type characters arriving on the serial console into the machine. Off by default: an unconnected RX pin would otherwise frame noise into the emulated keyboard.
         uint32_t removeSpriteLimit : 1; // NES only: 1 = draw every sprite on a scanline (less flicker), 0 = hardware limit of 8. Inverted so that the spare bit (0) in older saved files keeps the limit on.
         uint32_t menuOverscan : 2;     // 0 = menu uses the whole screen, 1 = top and bottom text row blank, 2 = also first and last column blank. For TVs that cut off the edges.
-        uint32_t reserved : 11;        // spare bits for future flags; reset to 0
-    } flags; // 21 bits used + 11 reserved = full 32-bit container
+        uint32_t genesisPad : 2;       // Genesis only: 0 = Auto (6 buttons when the cartridge header lists a 6-button pad), 1 = 3-button pad, 2 = 6-button pad
+        uint32_t reserved : 9;         // spare bits for future flags; reset to 0
+    } flags; // 23 bits used + 9 reserved = full 32-bit container
 
 };
 namespace FrensSettings

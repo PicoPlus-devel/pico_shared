@@ -125,6 +125,7 @@ namespace FrensSettings
         printf("serialKeyboard: %d\n", settings.flags.serialKeyboard);
         printf("removeSpriteLimit: %d\n", settings.flags.removeSpriteLimit);
         printf("menuOverscan: %d\n", settings.flags.menuOverscan);
+        printf("genesisPad: %d\n", settings.flags.genesisPad);
         printf("\n");
     }
     void resetsettings(struct settings *settingsPtr)
@@ -165,6 +166,7 @@ namespace FrensSettings
         settings.flags.serialKeyboard = 0; // default: ignore the serial console as an input
         settings.flags.removeSpriteLimit = 0; // default: NES hardware limit of 8 sprites per scanline
         settings.flags.menuOverscan = 0; // default: menu uses the whole screen
+        settings.flags.genesisPad = 0; // default: Auto, the cartridge header decides between 3 and 6 buttons
         settings.flags.reserved = 0;  // clear spare bits
         snprintf(settings.currentDir, sizeof(settings.currentDir), "/roms/%s", emulatorstrings[static_cast<int>(emulatorType)]);
     }
