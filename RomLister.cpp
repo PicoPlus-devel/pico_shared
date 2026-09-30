@@ -166,7 +166,10 @@ namespace Frens
 							const bool streamedExt =
 								(strcasecmp(ext, ".cue") == 0) ||
 								(strcasecmp(ext, ".chd") == 0);
-							if (streamedExt || pFile->fsize < availMem)
+							// maxOversizeRomSize: roms the emulator runs
+							// without a preload (FrensHelpers.h); 0 = none.
+							if (streamedExt || pFile->fsize < availMem ||
+								(maxOversizeRomSize > 0 && pFile->fsize <= (FSIZE_t)maxOversizeRomSize))
 							{
 								entries[numberOfEntries++] = romInfo;
 							}

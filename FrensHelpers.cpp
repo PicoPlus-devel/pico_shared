@@ -82,6 +82,7 @@ char ErrorMessage[ERRORMESSAGESIZE];
 bool scaleMode8_7_ = true;
 uintptr_t ROM_FILE_ADDR = 0;
 int maxRomSize = 0;
+int maxOversizeRomSize = 0; // see FrensHelpers.h
 extern char __StackLimit; // end of the heap region (linker script)
 
 namespace Frens

@@ -104,6 +104,13 @@ enum class ScanlineType : uint8_t
 #endif
 extern uintptr_t ROM_FILE_ADDR ; //0x10090000
 extern int maxRomSize;
+// On a PSRAM board the rom browser lists only files that fit in free PSRAM,
+// because that is what the menu preloads. An emulator that can run a larger
+// rom another way -- pico-genesisPlus runs it from flash -- sets this after
+// initAll() to the largest size it can take; the browser then lists files up
+// to that size too, and the preload leaves them alone (ROM_FILE_ADDR == 0).
+// 0, the default, keeps the listing as it was.
+extern int maxOversizeRomSize;
 extern char ErrorMessage[];
 extern bool scaleMode8_7_;
 #if !HSTX
