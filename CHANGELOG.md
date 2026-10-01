@@ -1,5 +1,9 @@
 # Release notes
 
+## 1/10/2026
+
+- **Controller Test exits on SELECT+UP** (held 2 s) instead of SELECT+START, which some 8BitDo wireless pads claim for themselves (pico-infonesPlus #255).
+
 ## 30/9/2026
 
 - **Genesis pad setting** (Genesis only): Auto, 3 button or 6 button. New `genesisPad` flag taken from the spare bits, so saved settings stay valid and read as Auto.
