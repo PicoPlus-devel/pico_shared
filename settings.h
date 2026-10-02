@@ -48,8 +48,9 @@ struct settings
         uint32_t removeSpriteLimit : 1; // NES only: 1 = draw every sprite on a scanline (less flicker), 0 = hardware limit of 8. Inverted so that the spare bit (0) in older saved files keeps the limit on.
         uint32_t menuOverscan : 2;     // 0 = menu uses the whole screen, 1 = top and bottom text row blank, 2 = also first and last column blank. For TVs that cut off the edges.
         uint32_t genesisPad : 2;       // Genesis only: 0 = Auto (6 buttons when the cartridge header lists a 6-button pad), 1 = 3-button pad, 2 = 6-button pad
-        uint32_t reserved : 9;         // spare bits for future flags; reset to 0
-    } flags; // 23 bits used + 9 reserved = full 32-bit container
+        uint32_t nesPalette : 4;       // NES only: index of the selected color palette. 0 = the board's default, which the spare bits (0) of older saved files select.
+        uint32_t reserved : 5;         // spare bits for future flags; reset to 0
+    } flags; // 27 bits used + 5 reserved = full 32-bit container
 
 };
 namespace FrensSettings

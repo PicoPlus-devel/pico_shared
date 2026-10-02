@@ -51,6 +51,10 @@ void menuSetCassetteHooks(const MenuCassetteHooks *hooks) { s_cassetteHooks = ho
 static const MenuDiskHooks *s_diskHooks = nullptr;
 void menuSetDiskHooks(const MenuDiskHooks *hooks) { s_diskHooks = hooks; }
 
+// Palette list, same contract again. Null unless an emulator registers one.
+static const MenuPaletteList *s_paletteList = nullptr;
+void menuSetPaletteList(const MenuPaletteList *list) { s_paletteList = list; }
+
 // Which drive the Disk row points at. Unlike the FDS and cassette choices this is a
 // cursor rather than a pending value - LEFT/RIGHT moves it between DSK1..DSKn and A
 // opens that drive's image list - so there is nothing to commit and nothing to reset.
@@ -4036,6 +4040,7 @@ int showSettingsMenu(bool calledFromGame)
         if (i == MOPT_SPRITE_LIMIT) continue;  // already handled above
         if (i == MOPT_RECENT_GAMES) continue;  // already handled above
         if (i == MOPT_MENU_OVERSCAN) continue; // listed with the menu colors, below
+        if (i == MOPT_NES_PALETTE) continue;   // listed with the display options, below
         // The three action entries that close the list are appended after this
         // loop in a fixed order, so skip them here.
         if (i == MOPT_CONTROLLER_TEST) continue;
@@ -4061,6 +4066,14 @@ int showSettingsMenu(bool calledFromGame)
         if (i == MOPT_FONT_BACK_COLOR && g_settings_visibility[MOPT_MENU_OVERSCAN] >= 0)
         {
             visibleIndices[visibleCount++] = MOPT_MENU_OVERSCAN;
+        }
+        // The palette goes right after the screen options for the same reason. Unlike
+        // the overscan entry it needs the emulator's palette list, so it stays hidden
+        // unless the emulator registered one and sets it visible.
+        if (i == MOPT_SCANLINE_TYPE && g_settings_visibility[MOPT_NES_PALETTE] > 0 &&
+            s_paletteList && s_paletteList->count > 0)
+        {
+            visibleIndices[visibleCount++] = MOPT_NES_PALETTE;
         }
     }
     // Fixed tail of the list: Controller test, Enter BOOTSEL mode, USB drive
@@ -4104,14 +4117,18 @@ int showSettingsMenu(bool calledFromGame)
     // the overscan setting blanks the top and bottom row. That setting is previewed while the
     // menu is open, so redraw() recomputes the rows below rowStartOptions on every frame.
     // The color palette is not part of the layout: while one of the menu colors is highlighted
-    // it is drawn in the four rows above the action row, over whatever is there.
+    // it is drawn in a box above the action row, over whatever is there. The NES palette
+    // description uses the same box.
     const int rowStartOptions   = 3;
     const int upIndicatorRow    = rowStartOptions - 1;
     int optionWindowSize        = 0;
     int downIndicatorRow        = 0;
     int actionRowScreen         = 0;
     int helpRowScreen           = 0;
-    int paletteStartRow         = 0;
+    // That box: a blank row, the 4 rows of the color grid or of the description, and a
+    // blank row, the last one being the spacer above the action row.
+    int boxStartRow             = 0;
+    const int boxRowCount       = 6;
     const int paletteRowCount   = 4;
     int  selectedOptionIndex = 0;                   // logical 0..visibleCount-1
     int  firstVisibleOption  = 0;                   // scroll offset
@@ -4135,20 +4152,22 @@ int showSettingsMenu(bool calledFromGame)
         downIndicatorRow = rowStartOptions + optionWindowSize;
         actionRowScreen  = downIndicatorRow + 2;
         helpRowScreen    = actionRowScreen + 2;
-        paletteStartRow  = actionRowScreen - paletteRowCount;
+        boxStartRow      = actionRowScreen - boxRowCount;
         // Keep the scroll offset valid for the window size just computed. The entries that
         // must stay on screen are the selection, or on a menu color both color rows (they are
-        // adjacent in visibleIndices) - and then above the palette, which covers the last
-        // option rows while it is up.
+        // adjacent in visibleIndices) - and then above the box with the color grid or the NES
+        // palette description, which covers the last option rows while it is up.
         const int maxFirst = (visibleCount > optionWindowSize) ? visibleCount - optionWindowSize : 0;
         if (firstVisibleOption > maxFirst)
             firstVisibleOption = maxFirst;
         bool colorSelected = false;
+        bool paletteSelected = false; // the NES palette option: its description covers the last option rows too
         int keepFirst = selectedOptionIndex;
         int keepLast  = selectedOptionIndex;
         if (!onActionRow && visibleCount > 0)
         {
             colorSelected = isColorOption(visibleIndices[selectedOptionIndex]);
+            paletteSelected = visibleIndices[selectedOptionIndex] == MOPT_NES_PALETTE;
             int keepWindow = optionWindowSize;
             if (colorSelected)
             {
@@ -4156,7 +4175,10 @@ int showSettingsMenu(bool calledFromGame)
                     keepFirst--;
                 if (keepLast < visibleCount - 1 && isColorOption(visibleIndices[keepLast + 1]))
                     keepLast++;
-                keepWindow -= downIndicatorRow - paletteStartRow; // option rows under the palette
+            }
+            if (colorSelected || paletteSelected)
+            {
+                keepWindow -= downIndicatorRow - boxStartRow; // option rows under the box
             }
             if (keepFirst < firstVisibleOption)
                 firstVisibleOption = keepFirst;
@@ -4504,6 +4526,14 @@ int showSettingsMenu(bool calledFromGame)
                 value = working.flags.autoInsertDiskA ? "ON" : "OFF";
                 break;
             }
+            case MenuSettingsIndex::MOPT_NES_PALETTE:
+            {
+                label = "NES Palette";
+                // Listed only when a palette list is registered, see visibleIndices.
+                const int idx = working.flags.nesPalette;
+                value = (idx < s_paletteList->count) ? s_paletteList->names[idx] : "?";
+                break;
+            }
             case MenuSettingsIndex::MOPT_SPRITE_LIMIT:
             {
                 label = "Sprite Limit (8 per line)";
@@ -4616,13 +4646,13 @@ int showSettingsMenu(bool calledFromGame)
             row++;
         }
         // 64-color palette grid (4 rows x 16 columns), only while a menu color is highlighted.
-        // It sits directly above the action row, over the last option rows - the scroll clamp
-        // above keeps the color rows themselves clear of it. Each block is a space with
-        // fg=bg=colorIndex.
+        // It sits in the box above the action row, with a blank row above and below, over the
+        // last option rows - the scroll clamp above keeps the color rows themselves clear of
+        // it. Each block is a space with fg=bg=colorIndex.
         if (colorSelected)
         {
-            row = paletteStartRow;
-            fillRect(0, row, SCREEN_COLS, paletteRowCount, CWHITE); // no option text beside it
+            fillRect(0, boxStartRow, SCREEN_COLS, boxRowCount, CWHITE); // no option text beside it
+            row = boxStartRow + 1;
             int blocksPerRow = 16;
             int gridStartCol = centerColClamped(blocksPerRow);
             for (int pr = 0; pr < paletteRowCount; ++pr)
@@ -4651,6 +4681,17 @@ int showSettingsMenu(bool calledFromGame)
                     putText(afterGrid, row, line, working.fgcolor, working.bgcolor);
                 }
                 row++;
+            }
+        }
+        // Description of the palette being chosen, in the same box as the color grid, in blue
+        // to set it apart from the options.
+        if (paletteSelected)
+        {
+            fillRect(0, boxStartRow, SCREEN_COLS, boxRowCount, CWHITE);
+            const int idx = working.flags.nesPalette;
+            if (idx < s_paletteList->count && s_paletteList->descriptions)
+            {
+                putText(0, boxStartRow + 1, s_paletteList->descriptions[idx], CBLUE, CWHITE, true);
             }
         }
         // Help text (dynamic button labels)
@@ -5168,6 +5209,19 @@ int showSettingsMenu(bool calledFromGame)
                         else
                             m = (m == 0) ? 2 : m - 1;
                         working.flags.genesisPad = m;
+                        break;
+                    }
+                    case MOPT_NES_PALETTE:
+                    {
+                        const int n = s_paletteList->count;
+                        int m = working.flags.nesPalette;
+                        if (m >= n)
+                            m = 0;
+                        else if (right)
+                            m = (m + 1) % n;
+                        else
+                            m = (m == 0) ? n - 1 : m - 1;
+                        working.flags.nesPalette = m;
                         break;
                     }
                     case MOPT_FDS_DISK_SWAP:
