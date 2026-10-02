@@ -126,6 +126,18 @@ void menuSetDiskHooks(const MenuDiskHooks *hooks);
 // capped there rather than at the length of a filename.
 #define DISK_LABEL_MAX 11
 
+// Optional list of color palettes, offered as the Palette option (MOPT_NES_PALETTE).
+// Null unless an emulator registers one; the option is then hidden. The menu only
+// stores the chosen index in settings.flags.nesPalette - applying it is up to the
+// emulator. Descriptions are drawn word-wrapped in 4 rows of at most 38 columns.
+struct MenuPaletteList
+{
+    int count;                       // entries, at most 16 (settings.flags.nesPalette is 4 bits)
+    const char *const *names;        // shown as the option value
+    const char *const *descriptions; // shown below the options while it is highlighted
+};
+void menuSetPaletteList(const MenuPaletteList *list);
+
 // Put a tape in the deck because the console just asked for one. Called from the
 // emulator's frame loop, not from the menu: SAVE CS1 / OLD CS1 name no file, so the
 // choice can only be made at the moment the DSR starts reading or writing. Pass 1 to

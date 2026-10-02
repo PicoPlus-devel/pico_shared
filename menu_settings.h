@@ -45,6 +45,7 @@ enum MenuSettingsIndex {
     MOPT_SPRITE_LIMIT,    // NES: 8 sprites per scanline limit. Listed below the FDS options, see menu.cpp
     MOPT_MENU_OVERSCAN,   // Blank menu edges for TVs that cut them off. Listed below the menu colors, see menu.cpp
     MOPT_GENESIS_PAD,     // Genesis: present a 3 or 6 button pad (Auto: the cartridge header decides)
+    MOPT_NES_PALETTE,     // NES: color palette. Listed after Scanline Type, see menu.cpp
     MOPT_COUNT
 };
 // Short description (max 40 chars) for each option. Use designated initializers
@@ -86,6 +87,7 @@ const char* const g_settings_descriptions[MOPT_COUNT] = {
     [MOPT_SPRITE_LIMIT]              = "Off: less flicker, rare glitches",
     [MOPT_MENU_OVERSCAN]             = "Blank menu edges for TV overscan",
     [MOPT_GENESIS_PAD]               = "3 or 6 button pad (Auto: game decides)",
+    [MOPT_NES_PALETTE]               = "Colors used to draw the game",
 };
 
 extern const int8_t *g_settings_visibility; // Visibility configuration for options menu
