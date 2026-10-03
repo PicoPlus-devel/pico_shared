@@ -188,7 +188,26 @@ static WORD *WorkLineRom = nullptr;
 
 #if PICO_RP2350
 // Track current WAV playback path and state while in the menu
+#if FRENS_WAV_IN_PSRAM
+// Kept in PSRAM with the rest of the WAV player state (see wavplayer.cpp).
+static char *lastWavPathPsram = nullptr;
+static char *last_wav_path()
+{
+    if (!lastWavPathPsram)
+    {
+        lastWavPathPsram = (char *)Frens::f_malloc(FF_MAX_LFN);
+        if (!lastWavPathPsram)
+        {
+            panic("Cannot allocate the WAV path buffer\n");
+        }
+        lastWavPathPsram[0] = '\0';
+    }
+    return lastWavPathPsram;
+}
+#define lastWavPath (last_wav_path())
+#else
 static char lastWavPath[FF_MAX_LFN] = {0};
+#endif
 #endif
 
 #if !HSTX
@@ -6096,8 +6115,8 @@ void menu(const char *title, char *errorMessage, bool isFatal, bool showSplash, 
                     {
                         EXT_AUDIO_SETVOLUME(settings.fruitjamVolumeLevel);
                         wavplayer::resume();
-                        strncpy(lastWavPath, fullWavPath, sizeof(lastWavPath) - 1);
-                        lastWavPath[sizeof(lastWavPath) - 1] = '\0';
+                        strncpy(lastWavPath, fullWavPath, FF_MAX_LFN - 1);
+                        lastWavPath[FF_MAX_LFN - 1] = '\0';
                     }
                     else
                     {

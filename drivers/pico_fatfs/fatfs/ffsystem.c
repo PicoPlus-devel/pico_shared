@@ -12,13 +12,18 @@
 /*------------------------------------------------------------------------*/
 
 #include <stdlib.h>		/* with POSIX API */
+/* Pico port: the working buffer goes to PSRAM through the framework's
+ * allocator (falls back to malloc when PSRAM is not enabled). Only used during
+ * f_open/f_readdir/f_stat and similar, never by f_read/f_write. */
+extern void *frens_f_malloc(size_t size);
+extern void frens_f_free(void *ptr);
 
 
 void* ff_memalloc (	/* Returns pointer to the allocated memory block (null if not enough core) */
 	UINT msize		/* Number of bytes to allocate */
 )
 {
-	return malloc((size_t)msize);	/* Allocate a new memory block */
+	return frens_f_malloc((size_t)msize);	/* Allocate a new memory block */
 }
 
 
@@ -26,7 +31,7 @@ void ff_memfree (
 	void* mblock	/* Pointer to the memory block to free (no effect if null) */
 )
 {
-	free(mblock);	/* Free the memory block */
+	frens_f_free(mblock);	/* Free the memory block */
 }
 
 #endif

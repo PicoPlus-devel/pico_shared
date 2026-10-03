@@ -13,7 +13,14 @@
 #define SAMPLES_PER_SCANLINE 4
 #define SCANLINES 240
 
+#if VU_METER_STREAMING
+// The meter only needs the average amplitude over a frame's worth of samples,
+// so an emulator that is short on SRAM can opt in to a running sum instead of
+// buffering the samples (saves 1.9 KB). The result is identical.
+static long sample_sum = 0;
+#else
 static int16_t frame_buffer[SCANLINES * SAMPLES_PER_SCANLINE];
+#endif
 static int sample_index = 0;
 static PIO pio;
 static uint sm;
@@ -40,15 +47,8 @@ static inline uint32_t packColorGRB(uint8_t r, uint8_t g, uint8_t b)
            (uint32_t)b;
 }
 static float dynamic_max = 2000.0f; // start guess
-void updateVUMeterFromAudioFrame(int16_t *buf, int count)
+static void updateVUMeterFromAverage(int avg)
 {
-    long sum = 0;
-    for (int i = 0; i < count; i++)
-    {
-        sum += abs(buf[i]);
-    }
-    int avg = sum / count; // average amplitude
-
     if (avg > dynamic_max)
     {
         dynamic_max = avg; // track peaks
@@ -86,6 +86,16 @@ void updateVUMeterFromAudioFrame(int16_t *buf, int count)
     }
 }
 
+void updateVUMeterFromAudioFrame(int16_t *buf, int count)
+{
+    long sum = 0;
+    for (int i = 0; i < count; i++)
+    {
+        sum += abs(buf[i]);
+    }
+    updateVUMeterFromAverage(sum / count); // average amplitude
+}
+
 void turnOffAllLeds()
 {
     for (int i = 0; i < LED_COUNT; i++)
@@ -121,7 +131,16 @@ void initializeNeoPixelStrip()
 
 void addSampleToVUMeter(int16_t sample)
 {
-
+#if VU_METER_STREAMING
+    sample_sum += abs(sample);
+    // When we have enough samples for a frame, process them
+    if (++sample_index >= SCANLINES * SAMPLES_PER_SCANLINE)
+    {
+        updateVUMeterFromAverage(sample_sum / sample_index);
+        sample_sum = 0;
+        sample_index = 0;
+    }
+#else
     frame_buffer[sample_index++] = sample;
     // When we have enough samples for a frame, process them
     if (sample_index >= SCANLINES * SAMPLES_PER_SCANLINE)
@@ -129,6 +148,7 @@ void addSampleToVUMeter(int16_t sample)
         updateVUMeterFromAudioFrame(frame_buffer, sample_index);
         sample_index = 0;
     }
+#endif
 }
 bool isVUMeterToggleButtonPressed()
 {

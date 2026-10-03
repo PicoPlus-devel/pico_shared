@@ -88,7 +88,29 @@ extern char __StackLimit; // end of the heap region (linker script)
 namespace Frens
 {
     static uint32_t crcOfRom = 0;
+#if FRENS_FS_IN_PSRAM
+    // The FatFs volume object (~850 B, including its 512 B sector window) is
+    // only touched by mounts, opens and cluster-chain walks, none of them hot,
+    // so an emulator that is short on SRAM can opt in to keeping it in PSRAM.
+    // Allocated on first use; initSDCard() runs after initPsram().
+    static FATFS *fsPsram = nullptr;
+    static FATFS &sdFs()
+    {
+        if (!fsPsram)
+        {
+            fsPsram = (FATFS *)f_malloc(sizeof(FATFS));
+            if (!fsPsram)
+            {
+                panic("Cannot allocate the FatFs volume object\n");
+            }
+            memset(fsPsram, 0, sizeof(FATFS));
+        }
+        return *fsPsram;
+    }
+#else
     static FATFS fs;
+    static FATFS &sdFs() { return fs; }
+#endif
     static bool fatfsUsesPioSpi = false;
     static DWORD totalSpace = 0;
     static DWORD freeSpace = 0;
@@ -641,7 +663,7 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
     void getFsInfo(char *fstype, size_t fstypeSize)
     {
         const char *base;
-        switch (fs.fs_type)
+        switch (sdFs().fs_type)
         {
         case FS_FAT12:
             base = "FAT12";
@@ -696,7 +718,7 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
             fatfsUsesPioSpi = true;
         }
 
-        fr = f_mount(&fs, "", 1);
+        fr = f_mount(&sdFs(), "", 1);
         if (fr != FR_OK)
         {
             snprintf(ErrorMessage, ERRORMESSAGESIZE, "SD card mount error: %d", fr);
@@ -704,7 +726,7 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
             return false;
         }
         printf("\n");
-        switch (fs.fs_type)
+        switch (sdFs().fs_type)
         {
         case FS_FAT12:
             printf("Type is FAT12\n");
@@ -789,7 +811,7 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
     // root when the host removed or renamed that directory.
     bool remountSDCard()
     {
-        FRESULT fr = f_mount(&fs, "", 1);
+        FRESULT fr = f_mount(&sdFs(), "", 1);
         if (fr != FR_OK)
         {
             snprintf(ErrorMessage, ERRORMESSAGESIZE, "SD card mount error: %d", fr);

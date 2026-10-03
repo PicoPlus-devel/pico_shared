@@ -39,6 +39,7 @@
 #include "settings.h"
 
 #include <algorithm>
+#include <new>
 #include <cstdint>
 #include <cstdio>
 
@@ -96,7 +97,28 @@ namespace wavplayer
         bool isplaying; //!< Whether playback is paused.
     };
 
+#if FRENS_WAV_IN_PSRAM
+    // The player state (~650 B, mostly the FatFs file handle) is only used by
+    // the menu, so an emulator that is short on SRAM can opt in to keeping it
+    // in PSRAM. Created on first use, after initAll() has brought PSRAM up.
+    static WavState *g_wavPsram = nullptr;
+    static WavState &wav_state()
+    {
+        if (!g_wavPsram)
+        {
+            void *mem = Frens::f_malloc(sizeof(WavState));
+            if (!mem)
+            {
+                panic("Cannot allocate the WAV player state\n");
+            }
+            g_wavPsram = new (mem) WavState{};
+        }
+        return *g_wavPsram;
+    }
+#define g_wav (wav_state())
+#else
     static WavState g_wav{};
+#endif
       // Read chunked frames from file (max 256 frames, up to 6 bytes/frame)
     #define WAVPLAYER_MAX_READ_BYTES (256 * 6)
     static uint8_t *buf = nullptr; //[256 * 6];
