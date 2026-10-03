@@ -4614,7 +4614,7 @@ int showSettingsMenu(bool calledFromGame)
             }
             case MenuSettingsIndex::MOPT_FDS_DISK_SWAP:
             {
-                label = "Select disk";
+                label = (s_fdsHooks && s_fdsHooks->label) ? s_fdsHooks->label : "Select disk";
                 static char fdsBuf[16];
                 if (!s_fdsHooks || !s_fdsHooks->get_num_sides)
                 {
@@ -4633,6 +4633,11 @@ int showSettingsMenu(bool calledFromGame)
                     if (s_fdsPendingChoice == n)
                     {
                         value = "Reset";
+                    }
+                    else if (s_fdsHooks->choice_name)
+                    {
+                        s_fdsHooks->choice_name(s_fdsPendingChoice, fdsBuf, sizeof(fdsBuf));
+                        value = fdsBuf;
                     }
                     else if (n == 1)
                     {

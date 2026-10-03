@@ -61,12 +61,19 @@ int showSettingsMenu(bool calledFromGame = false);
 // Optional FDS disk-swap hooks. The NES emulator wires these up to its
 // FDS implementation at startup; other emulators leave it null and the
 // menu hides the option via g_settings_visibility[MOPT_FDS_DISK_SWAP].
+//
+// The same entry serves any removable medium: the Genesis emulator uses it
+// to change the disc of a multi-disc Sega CD game. The two trailing fields
+// are optional; an emulator that leaves them out (as the NES one does, with
+// its four-member initializer) gets the FDS wording.
 struct MenuFdsHooks
 {
     int  (*get_swap_value)();          // 0..NumSides-1 for "Side N", NumSides for "Ejected"
     int  (*get_num_sides)();           // total disk sides
     void (*request_swap)(int newSide); // schedule eject + insert with newSide
     void (*request_eject)();           // hold disk ejected
+    const char *label;                 // row label, nullptr: "Select disk"
+    void (*choice_name)(int choice, char *buf, int size); // nullptr: "Side A", "Side B", ...
 };
 void menuSetFdsHooks(const MenuFdsHooks *hooks);
 

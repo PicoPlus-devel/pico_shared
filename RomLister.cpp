@@ -219,6 +219,14 @@ namespace Frens
 				if (strcasecmp(ext, ".cue") == 0 ||
 				    strcasecmp(ext, ".chd") == 0) { hasCue = true; break; }
 			}
+			// Genesis (Sega CD / MD+): the same folder also holds the disc's
+			// track files (.bin/.iso/.wav, the Redump layout has one per
+			// track), the MD+ cartridge that goes with the disc, and maybe a
+			// per-game BIOS -- all of which would otherwise be listed as
+			// cartridges, and small audio tracks even offered to the flash
+			// writer. The disc image is the one entry to pick.
+			const bool genesis =
+				FrensSettings::getEmulatorTypeForSettings() == FrensSettings::emulators::GENESIS;
 			if (hasCue) {
 				size_t write = 0;
 				size_t hidden = 0;
@@ -230,7 +238,11 @@ namespace Frens
 						// BIOS files dropped alongside CD images: .pce ROM
 						// dumps and the common "cd_bios.rom" name.
 						if (strcasecmp(ext, ".pce") == 0 ||
-						    strcasecmp(entries[read].Path, "cd_bios.rom") == 0) {
+						    strcasecmp(entries[read].Path, "cd_bios.rom") == 0 ||
+						    (genesis &&
+						     (strcasecmp(ext, ".bin") == 0 || strcasecmp(ext, ".md") == 0 ||
+						      strcasecmp(ext, ".gen") == 0 || strcasecmp(ext, ".smd") == 0 ||
+						      strcasecmp(ext, ".iso") == 0 || strcasecmp(ext, ".wav") == 0))) {
 							hidden++;
 							continue;
 						}
@@ -240,8 +252,8 @@ namespace Frens
 				}
 				numberOfEntries = write;
 				if (hidden > 0) {
-					printf("RomLister: hiding %u .pce file(s) in CD folder %s "
-					       "(presumed BIOS)\n",
+					printf("RomLister: hiding %u file(s) in CD folder %s "
+					       "(tracks, BIOS or MD+ rom)\n",
 					       (unsigned)hidden, directoryname);
 				}
 			}
