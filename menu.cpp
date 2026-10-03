@@ -377,6 +377,9 @@ int Menu_LoadFrame()
 }
 
 bool resetScreenSaver = false;
+// A button was seen on a GPIO controller port since start-up. An idle SNES pad
+// reads the same as an empty port, so a press is the only proof one is there.
+static bool gpioPadPressed = false;
 
 void RomSelect_PadState(DWORD *pdwPad1, bool ignorepushed = false)
 {
@@ -416,9 +419,11 @@ void RomSelect_PadState(DWORD *pdwPad1, bool ignorepushed = false)
 
 #if NES_PIN_CLK != -1
     v |= nespadMenuBits(nespad_states_ext[0], nespad_padtype[0]);
+    gpioPadPressed |= nespad_states_ext[0] != 0;
 #endif
 #if NES_PIN_CLK_1 != -1
     v |= nespadMenuBits(nespad_states_ext[1], nespad_padtype[1]);
+    gpioPadPressed |= nespad_states_ext[1] != 0;
 #endif
 #if WII_PIN_SDA >= 0 and WII_PIN_SCL >= 0
     v |= wiipad_read();
@@ -1245,40 +1250,30 @@ static void fillRect(int x, int y, int w, int h, int color)
     }
 }
 
-// Full-screen warning shown before enabling an overclock that boots the CPU
-// above the safe default clock. The message sits inside a red box and shows the
-// target clock and voltage. Returns true if the user confirms (A: Continue),
-// false to back out (B: Undo). Modeled on showDialogYesNo.
-static bool showOverclockWarning(uint32_t targetMHz, vreg_voltage targetVoltage)
+// Full-screen warning shown before enabling a setting that needs it. The lines sit
+// inside a red box below the title; an empty string leaves a blank line. Returns
+// true if the user confirms (A: Continue), false to back out (B: Undo). Modeled on
+// showDialogYesNo.
+static bool showWarningDialog(const char *title, const char *const lines[], int lineCount)
 {
     char msg[MAX_SCREEN_COLS + 1];
-    char voltStr[10];
-    formatVregVoltage(targetVoltage, voltStr, sizeof(voltStr));
 
     ClearScreen(settings.bgcolor);
 
-    // Red alert box with white text.
+    // Red alert box with white text: title, blank line, lines, blank line.
     const int boxW = 33;
-    const int boxH = 9;
+    const int boxH = lineCount + 4;
     const int boxX = centerColClamped(boxW);
     const int boxY = SCREEN_ROWS / 2 - boxH / 2 - 2;
     fillRect(boxX, boxY, boxW, boxH, CRED);
 
     int row = boxY + 1;
-    const char *title = "!! OVERCLOCK WARNING !!";
     putText(centerColClamped(strlen(title)), row, title, CWHITE, CRED);
     row += 2;
-    snprintf(msg, sizeof(msg), "Runs at %u MHz / %s.", (unsigned)targetMHz, voltStr);
-    putText(centerColClamped(strlen(msg)), row, msg, CWHITE, CRED);
-    row += 1;
-    const char *l2 = "This can cause serious wear";
-    putText(centerColClamped(strlen(l2)), row, l2, CWHITE, CRED);
-    row += 1;
-    const char *l3 = "and overheating of the board.";
-    putText(centerColClamped(strlen(l3)), row, l3, CWHITE, CRED);
-    row += 2;
-    const char *l4 = "Enable it at your own risk.";
-    putText(centerColClamped(strlen(l4)), row, l4, CWHITE, CRED);
+    for (int i = 0; i < lineCount; i++, row++)
+    {
+        putText(centerColClamped(strlen(lines[i])), row, lines[i], CWHITE, CRED);
+    }
 
     // Button prompts below the box, in the normal menu colors.
     getButtonLabels(buttonLabel1, buttonLabel2);
@@ -1306,6 +1301,64 @@ static bool showOverclockWarning(uint32_t targetMHz, vreg_voltage targetVoltage)
         }
     }
 }
+
+// Shown before enabling an overclock that boots the CPU above the safe default
+// clock, with the target clock and voltage.
+static bool showOverclockWarning(uint32_t targetMHz, vreg_voltage targetVoltage)
+{
+    char msg[MAX_SCREEN_COLS + 1];
+    char voltStr[10];
+    formatVregVoltage(targetVoltage, voltStr, sizeof(voltStr));
+    snprintf(msg, sizeof(msg), "Runs at %u MHz / %s.", (unsigned)targetMHz, voltStr);
+    const char *const lines[] = {
+        msg,
+        "This can cause serious wear",
+        "and overheating of the board.",
+        "",
+        "Enable it at your own risk.",
+    };
+    return showWarningDialog("!! OVERCLOCK WARNING !!", lines, sizeof(lines) / sizeof(lines[0]));
+}
+
+#if HSTX && !CFG_TUH_RPI_PIO_USB
+// Shown before enabling the Video Clock Fix, which takes the built-in USB port's
+// clock away from it.
+static bool showVideoClockFixWarning()
+{
+    const char *const lines[] = {
+        "Use this only if your TV or",
+        "monitor shows small dots or",
+        "lines in the picture.",
+        "",
+        "A USB controller can then no",
+        "longer be used. Use a NES,",
+        "SNES or Wii controller instead.",
+        "",
+        "To undo, delete the settings",
+        "file on the SD card.",
+    };
+    return showWarningDialog("!! VIDEO CLOCK FIX !!", lines, sizeof(lines) / sizeof(lines[0]));
+}
+
+// True when there is a controller that keeps working with the built-in USB
+// port off: a Wii Classic controller that answered on I2C, a NES pad (its ID
+// bits give it away even when idle), or a GPIO port that has sent a button
+// press - the only way to tell an idle SNES pad from an empty port.
+static bool nonUsbControllerFound()
+{
+    bool found = gpioPadPressed;
+#if NES_PIN_CLK != -1
+    found |= nespad_padtype[0] != NESPAD_TYPE_UNKNOWN;
+#endif
+#if NES_PIN_CLK_1 != -1
+    found |= nespad_padtype[1] != NESPAD_TYPE_UNKNOWN;
+#endif
+#if WII_PIN_SDA >= 0 and WII_PIN_SCL >= 0
+    found |= wiipad_is_connected();
+#endif
+    return found;
+}
+#endif
 // --- Controller Test screen (Settings > Controller Test) -------------------
 // Shows a SNES-pad graphic that follows whichever input source was last
 // active, plus a status list of all sources. Reads the raw per-source globals
@@ -4041,6 +4094,7 @@ int showSettingsMenu(bool calledFromGame)
         if (i == MOPT_RECENT_GAMES) continue;  // already handled above
         if (i == MOPT_MENU_OVERSCAN) continue; // listed with the menu colors, below
         if (i == MOPT_NES_PALETTE) continue;   // listed with the display options, below
+        if (i == MOPT_HSTX_CLOCK_FIX) continue; // listed after Overclock, below
         // The three action entries that close the list are appended after this
         // loop in a fixed order, so skip them here.
         if (i == MOPT_CONTROLLER_TEST) continue;
@@ -4074,6 +4128,12 @@ int showSettingsMenu(bool calledFromGame)
             s_paletteList && s_paletteList->count > 0)
         {
             visibleIndices[visibleCount++] = MOPT_NES_PALETTE;
+        }
+        // The Video Clock Fix goes right after Overclock, whether or not that one is
+        // shown: both set the clocks and reboot to apply, so it is rom-browser only too.
+        if (i == MOPT_OVERCLOCK && !calledFromGame && g_settings_visibility[MOPT_HSTX_CLOCK_FIX] > 0)
+        {
+            visibleIndices[visibleCount++] = MOPT_HSTX_CLOCK_FIX;
         }
     }
     // Fixed tail of the list: Controller test, Enter BOOTSEL mode, USB drive
@@ -4118,7 +4178,7 @@ int showSettingsMenu(bool calledFromGame)
     // menu is open, so redraw() recomputes the rows below rowStartOptions on every frame.
     // The color palette is not part of the layout: while one of the menu colors is highlighted
     // it is drawn in a box above the action row, over whatever is there. The NES palette
-    // description uses the same box.
+    // description and the Video Clock Fix warning use the same box.
     const int rowStartOptions   = 3;
     const int upIndicatorRow    = rowStartOptions - 1;
     int optionWindowSize        = 0;
@@ -4126,9 +4186,10 @@ int showSettingsMenu(bool calledFromGame)
     int actionRowScreen         = 0;
     int helpRowScreen           = 0;
     // That box: a blank row, the 4 rows of the color grid or of the description, and a
-    // blank row, the last one being the spacer above the action row.
+    // blank row, the last one being the spacer above the action row. The Video Clock Fix
+    // text needs 5 rows, so its box is one row taller.
     int boxStartRow             = 0;
-    const int boxRowCount       = 6;
+    int boxRowCount             = 6;
     const int paletteRowCount   = 4;
     int  selectedOptionIndex = 0;                   // logical 0..visibleCount-1
     int  firstVisibleOption  = 0;                   // scroll offset
@@ -4152,6 +4213,7 @@ int showSettingsMenu(bool calledFromGame)
         downIndicatorRow = rowStartOptions + optionWindowSize;
         actionRowScreen  = downIndicatorRow + 2;
         helpRowScreen    = actionRowScreen + 2;
+        boxRowCount      = 6;
         boxStartRow      = actionRowScreen - boxRowCount;
         // Keep the scroll offset valid for the window size just computed. The entries that
         // must stay on screen are the selection, or on a menu color both color rows (they are
@@ -4162,12 +4224,16 @@ int showSettingsMenu(bool calledFromGame)
             firstVisibleOption = maxFirst;
         bool colorSelected = false;
         bool paletteSelected = false; // the NES palette option: its description covers the last option rows too
+        bool clockFixSelected = false; // the Video Clock Fix: its warning uses the same box
         int keepFirst = selectedOptionIndex;
         int keepLast  = selectedOptionIndex;
         if (!onActionRow && visibleCount > 0)
         {
             colorSelected = isColorOption(visibleIndices[selectedOptionIndex]);
             paletteSelected = visibleIndices[selectedOptionIndex] == MOPT_NES_PALETTE;
+            clockFixSelected = visibleIndices[selectedOptionIndex] == MOPT_HSTX_CLOCK_FIX;
+            boxRowCount = clockFixSelected ? 7 : 6;
+            boxStartRow = actionRowScreen - boxRowCount;
             int keepWindow = optionWindowSize;
             if (colorSelected)
             {
@@ -4176,7 +4242,7 @@ int showSettingsMenu(bool calledFromGame)
                 if (keepLast < visibleCount - 1 && isColorOption(visibleIndices[keepLast + 1]))
                     keepLast++;
             }
-            if (colorSelected || paletteSelected)
+            if (colorSelected || paletteSelected || clockFixSelected)
             {
                 keepWindow -= downIndicatorRow - boxStartRow; // option rows under the box
             }
@@ -4415,6 +4481,12 @@ int showSettingsMenu(bool calledFromGame)
             {
                 label = "Overclock";
                 value = working.flags.overclock ? "ON" : "OFF";
+                break;
+            }
+            case MenuSettingsIndex::MOPT_HSTX_CLOCK_FIX:
+            {
+                label = "Video Clock Fix";
+                value = working.flags.hstxClockFix ? "ON" : "OFF";
                 break;
             }
             case MenuSettingsIndex::MOPT_FM_AUDIO:
@@ -4693,6 +4765,17 @@ int showSettingsMenu(bool calledFromGame)
             {
                 putText(0, boxStartRow + 1, s_paletteList->descriptions[idx], CBLUE, CWHITE, true);
             }
+        }
+        // What the Video Clock Fix does and what it costs, in the same box. 5 rows when
+        // wrapped at 38 or 40 columns (38 with the menu overscan setting at its widest).
+        if (clockFixSelected)
+        {
+            fillRect(0, boxStartRow, SCREEN_COLS, boxRowCount, CWHITE);
+            putText(0, boxStartRow + 1,
+                    "Turn this on if your TV or monitor shows small dots or lines in the picture. "
+                    "A USB controller can then no longer be used. "
+                    "Use a NES, SNES or Wii controller instead.",
+                    CBLUE, CWHITE, true);
         }
         // Help text (dynamic button labels)
 
@@ -5100,6 +5183,20 @@ int showSettingsMenu(bool calledFromGame)
                     case MOPT_OVERCLOCK:
                         working.flags.overclock = !working.flags.overclock;
                         break;
+                    case MOPT_HSTX_CLOCK_FIX:
+#if HSTX && !CFG_TUH_RPI_PIO_USB
+                        // Without another controller, nothing could reach this
+                        // menu again to switch the fix back off.
+                        if (!working.flags.hstxClockFix && !nonUsbControllerFound())
+                        {
+                            showMessageBox("No NES, SNES or Wii controller found.", CRED,
+                                           "Connect one and press a button on it.");
+                            startFrames = -1; // time spent on the message must not trip the screensaver
+                            break;
+                        }
+#endif
+                        working.flags.hstxClockFix = !working.flags.hstxClockFix;
+                        break;
                     case MOPT_FM_AUDIO:
                         working.flags.useFM = !working.flags.useFM;
                         break;
@@ -5351,6 +5448,16 @@ int showSettingsMenu(bool calledFromGame)
                 working.flags.overclock = 0; // Undo: keep overclock OFF, no reboot
             }
         }
+#if HSTX && !CFG_TUH_RPI_PIO_USB
+        // Same for the Video Clock Fix, which turns the built-in USB port off.
+        if (working.flags.hstxClockFix && !settings.flags.hstxClockFix)
+        {
+            if (!showVideoClockFixWarning())
+            {
+                working.flags.hstxClockFix = 0; // Undo: keep it OFF, no reboot
+            }
+        }
+#endif
 #endif
         // Copy working settings into global settings and persist.
         // Preserve directory navigation fields that user did not edit here.
@@ -5362,29 +5469,40 @@ int showSettingsMenu(bool calledFromGame)
         FrensSettings::savesettings();
         if (rval == 0) rval = 1;
 
-        // If the overclock toggle disagrees with the live clock, rewrite
-        // FlashParams and reboot. writeFlashParamsToFlash arms the watchdog
-        // and never returns.
+        // If the overclock toggle disagrees with the live clock, or the Video
+        // Clock Fix with FlashParams, rewrite FlashParams and reboot. Both go
+        // in one write. writeFlashParamsToFlash arms the watchdog and never
+        // returns.
 #if HW_CONFIG != 7
+        const bool highClock = settings.flags.overclock || settings.flags.useFM;
         uint32_t liveKHz   = clock_get_hz(clk_sys) / 1000;
-        uint32_t targetKHz = (settings.flags.overclock || settings.flags.useFM) ? Frens::getMaxFreqKHz() : Frens::getMinFreqKHz();
-        //vreg_voltage targetV = (settings.flags.overclock || settings.flags.useFM) ? Frens::getMaxVoltage() : Frens::getMinVoltage();
-        if (liveKHz != targetKHz ) //&& FrensSettings::getEmulatorType() != FrensSettings::emulators::SNES)
+        uint32_t targetKHz = highClock ? Frens::getMaxFreqKHz() : Frens::getMinFreqKHz();
+        vreg_voltage targetV = highClock ? Frens::getMaxVoltage() : Frens::getMinVoltage();
+        uint32_t liveOpts   = Frens::getFlashParamsOptions();
+        uint32_t targetOpts = liveOpts & ~FLASHPARAM_OPT_HSTX_ON_PLL_USB;
+#if HSTX && !CFG_TUH_RPI_PIO_USB
+        // Only where the option is shown: a settings file from another emulator
+        // or board must not switch the built-in USB port off here.
+        if (settings.flags.hstxClockFix && g_settings_visibility[MOPT_HSTX_CLOCK_FIX] > 0)
         {
-            showLoadingScreen((settings.flags.overclock || settings.flags.useFM) ? "Enabling overclock" : "Disabling overclock", 60);
-            if (liveKHz < targetKHz)
+            targetOpts |= FLASHPARAM_OPT_HSTX_ON_PLL_USB;
+        }
+#endif
+        if (liveKHz != targetKHz || liveOpts != targetOpts)
+        {
+            const char *message;
+            if (liveKHz != targetKHz)
             {
-                if (Frens::WriteMaxValuesToFlash() == false)
-                {
-                    printf("Failed to write max values to flash\n");
-                }
+                message = highClock ? "Enabling overclock" : "Disabling overclock";
             }
             else
             {
-                if (Frens::WriteMinValuesToFlash() == false)
-                {
-                    printf("Failed to write min values to flash\n");
-                }
+                message = (targetOpts & FLASHPARAM_OPT_HSTX_ON_PLL_USB) ? "Enabling video clock fix" : "Disabling video clock fix";
+            }
+            showLoadingScreen(message, 60);
+            if (Frens::writeFlashParamsToFlash(targetKHz, targetV, targetOpts) == false)
+            {
+                printf("Failed to write FlashParams\n");
             }
         }
 #endif

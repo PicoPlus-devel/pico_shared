@@ -1,4 +1,6 @@
 #include "FlashParams.h"
+#include "settings.h"
+#include "hardware/clocks.h"
 #include <cstring>
 
 #define FLASHPARAM_MIN_FREQ_KHZ 252000 // NES, GB, SMS
@@ -76,15 +78,33 @@ namespace Frens
         return (FlashParams *)FLASHPARAM_ADDRESS;
     }
 
+    /// @brief Get the FLASHPARAM_OPT_* bits stored in flash.
+    /// Independent of the clock validation: a board that never reads the clock from
+    /// FlashParams still honours the options.
+    /// @return The options, or 0 when the sector holds none.
+    uint32_t getFlashParamsOptions()
+    {
+        const FlashParams *params = getFlashParams();
+        if (strncmp(params->magic, FLASHPARAM_MAGIC, sizeof(FLASHPARAM_MAGIC)) != 0 ||
+            params->optionsMagic != FLASHPARAM_OPTIONS_MAGIC)
+        {
+            return 0;
+        }
+        return params->options;
+    }
+
     /// @brief Write new FlashParams to flash memory and reboot.
     /// @param cpuFreqKHz The CPU frequency in KHz.
     /// @param voltage The voltage setting.
-    /// @return true on success, false when invalid params are provided.
-    bool __not_in_flash_func(writeFlashParamsToFlash)(uint32_t cpuFreqKHz, vreg_voltage voltage)
+    /// @param options The FLASHPARAM_OPT_* bits.
+    /// @return false when invalid params are provided; does not return otherwise.
+    bool __not_in_flash_func(writeFlashParamsToFlash)(uint32_t cpuFreqKHz, vreg_voltage voltage, uint32_t options)
     {
-        FlashParams params;
+        FlashParams params = {};
         params.cpuFreqKHz = cpuFreqKHz;
         params.voltage = voltage;
+        params.optionsMagic = FLASHPARAM_OPTIONS_MAGIC;
+        params.options = options;
         strncpy(params.magic, FLASHPARAM_MAGIC, sizeof(FLASHPARAM_MAGIC));
         auto ofs = FLASHPARAM_ADDRESS - XIP_BASE;
         printf("Erasing and programming flash at offset: 0x%08X\n", ofs);
@@ -94,7 +114,7 @@ namespace Frens
             return false; // Invalid params
         }
 
-        printf("New FlashParams: cpuFreqKHz=%u, voltage=%u\n", params.cpuFreqKHz, params.voltage);
+        printf("New FlashParams: cpuFreqKHz=%u, voltage=%u, options=0x%08X\n", params.cpuFreqKHz, params.voltage, params.options);
         printf("System will reboot after programming flash...\n");
         // Program the hardware watchdog timer to reboot and do this before writing to flash,
         // system will likely hang after flash write.
@@ -138,13 +158,106 @@ namespace Frens
         return true;
     }
 
+    // Both keep the options already in flash: these only change the clock.
     bool WriteMaxValuesToFlash()
     {
-        return writeFlashParamsToFlash(_maxFreq, _maxVoltage);
+        return writeFlashParamsToFlash(_maxFreq, _maxVoltage, getFlashParamsOptions());
     }
 
     bool WriteMinValuesToFlash()
     {
-        return writeFlashParamsToFlash(_minFreq, _minVoltage);
+        return writeFlashParamsToFlash(_minFreq, _minVoltage, getFlashParamsOptions());
+    }
+
+    /// @brief Write new options to flash and reboot, keeping the clock the board runs at now.
+    /// @param options The FLASHPARAM_OPT_* bits.
+    /// @return false when the params could not be written; does not return otherwise.
+    bool writeFlashParamsOptions(uint32_t options)
+    {
+        if (clock_get_hz(clk_sys) / 1000 == _maxFreq)
+        {
+            return writeFlashParamsToFlash(_maxFreq, _maxVoltage, options);
+        }
+        return writeFlashParamsToFlash(_minFreq, _minVoltage, options);
+    }
+
+    /// @brief Bring the settings file and FlashParams back in line. Call right after
+    /// the settings are loaded.
+    ///
+    /// They can disagree after a FlashParams write that did not complete, a UF2 update
+    /// that moved FlashParams (it sits right after the binary), or an SD card taken from
+    /// another board, or after the settings were reset (a new SETTINGS_VERSION, or the
+    /// file deleted) while FlashParams survived.
+    ///
+    /// A setting that is ON where FlashParams says off is turned off in the settings:
+    /// switching something on is left to the menu, with its warnings. The other way
+    /// round the settings win and FlashParams is rewritten, which reboots the board:
+    /// - Overclock OFF but FlashParams at the overclock goes back to the normal clock.
+    /// - A Video Clock Fix that is on in flash but off in the settings is turned off in
+    ///   flash. That keeps a way back for someone whose only controller is a USB pad on
+    ///   the built-in port: delete the settings file on a PC.
+    void reconcileSettingsWithFlashParams()
+    {
+#if HW_CONFIG != 7
+        bool dirty = false;
+        const FlashParams *params = getFlashParams();
+        // Left alone, the menu shows Overclock ON at the normal clock, and the next save
+        // of any setting switches to the overclock without the warning.
+        if (settings.flags.overclock && !(validateFlashParams(*params) && params->cpuFreqKHz == _maxFreq))
+        {
+            printf("Overclock is on in the settings but not in FlashParams, turning it off.\n");
+            settings.flags.overclock = 0;
+            dirty = true;
+        }
+#if HSTX && !CFG_TUH_RPI_PIO_USB
+        const bool clockFixInFlash = (getFlashParamsOptions() & FLASHPARAM_OPT_HSTX_ON_PLL_USB) != 0;
+        // Never the other way round: a moved SD card must not switch off the built-in
+        // USB port of the board it is moved to.
+        if (settings.flags.hstxClockFix && !clockFixInFlash)
+        {
+            printf("Video Clock Fix is on in the settings but not in FlashParams, turning it off.\n");
+            settings.flags.hstxClockFix = 0;
+            dirty = true;
+        }
+#endif
+        if (dirty)
+        {
+            FrensSettings::savesettings();
+        }
+
+        // From here the settings win. Both changes go in one write.
+        bool clockDown = false;
+#if !SGX && !RETROJAM
+        // Left alone, the board keeps running at the overclock with the menu showing it
+        // OFF, until the next save of any setting. FM sound (SMS) needs the max clock
+        // too. Not for SGX and retroJam, which pick the max clock themselves while
+        // Overclock is off. With min == max there is nothing to go down to, and writing
+        // it would reboot into the same state forever.
+        if (!settings.flags.overclock && !settings.flags.useFM && _maxFreq != _minFreq &&
+            validateFlashParams(*params) && params->cpuFreqKHz == _maxFreq)
+        {
+            printf("Overclock is off in the settings, turning it off in FlashParams.\n");
+            clockDown = true;
+        }
+#endif
+        const uint32_t oldOptions = getFlashParamsOptions();
+        uint32_t newOptions = oldOptions;
+#if HSTX && !CFG_TUH_RPI_PIO_USB
+        if (clockFixInFlash && !settings.flags.hstxClockFix)
+        {
+            printf("Video Clock Fix is off in the settings, turning it off in FlashParams.\n");
+            newOptions &= ~FLASHPARAM_OPT_HSTX_ON_PLL_USB;
+        }
+#endif
+        if (clockDown || newOptions != oldOptions)
+        {
+            bool ok = clockDown ? writeFlashParamsToFlash(_minFreq, _minVoltage, newOptions)
+                                : writeFlashParamsOptions(newOptions);
+            if (!ok)
+            {
+                printf("Failed to write FlashParams\n");
+            }
+        }
+#endif
     }
 } // namespace Frens

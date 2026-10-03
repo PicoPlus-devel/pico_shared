@@ -1898,6 +1898,8 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
             dumpHeapStats("initAll/postInitSD");
             FrensSettings::loadsettings();
             dumpHeapStats("initAll/postLoadSettings");
+            // May reboot, see the function.
+            reconcileSettingsWithFlashParams();
             // When a game is started from the menu, the menu will reboot the device.
             // After reboot the emulator will start the selected game.
             // The watchdog timer is used to detect if the reboot was caused by the menu.
@@ -1946,22 +1948,30 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
         }
         dumpHeapStats("initAll/postBoardAfterTusb");
 #else
-        printf("Using internal USB.\n");
         dumpHeapStats("initAll/preUSB");
-#if FRENS_USB_MSC
-        // The argument-less tusb_init() brings up every enabled stack, and with
-        // USB drive mode compiled in that includes the device stack. Only the
-        // host is wanted at boot: the device side is started on demand by
-        // Frens::usbMscBegin() and stopped again on the way out.
+        if (isBuiltinUsbDisabled())
         {
+            // PLL_USB is the HSTX clock, so the USB hardware is not running at
+            // 48 MHz: do not start a host on it. tuh_task() returns at once
+            // while the host stack is not initialised.
+            printf("Built-in USB port disabled (Video Clock Fix).\n");
+        }
+        else
+        {
+            printf("Using internal USB.\n");
+#if FRENS_USB_MSC
+            // The argument-less tusb_init() brings up every enabled stack, and with
+            // USB drive mode compiled in that includes the device stack. Only the
+            // host is wanted at boot: the device side is started on demand by
+            // Frens::usbMscBegin() and stopped again on the way out.
             tusb_rhport_init_t host_init = {
                 .role = TUSB_ROLE_HOST,
                 .speed = TUSB_SPEED_AUTO};
             tusb_init(BOARD_TUH_RHPORT, &host_init);
-        }
 #else
-        tusb_init();
+            tusb_init();
 #endif
+        }
         dumpHeapStats("initAll/postTusbInit");
 #endif
 #if !HSTX
@@ -2175,6 +2185,13 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
     // so USB drive mode has to borrow it back for the duration.
     static bool pllUsbTakenForHstx = false;
     static bool usbClockBorrowed = false;
+    // Set by setClocksAndStartStdio() from FlashParams, see isBuiltinUsbDisabled().
+    static bool builtinUsbDisabled = false;
+
+    bool isBuiltinUsbDisabled()
+    {
+        return builtinUsbDisabled;
+    }
 
     // Give the native USB controller a valid 48 MHz clock.
     //
@@ -2324,22 +2341,29 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
         sleep_ms(100);
         // Reconfigure HSTX clock to 126 MHz, so display can run at 60Hz.
         //
-        // SGX-at-378 MHz path only: *force* the PLL_USB-sourced HSTX route
-        // even for clk_sys values that are integer multiples of 126. Reason:
-        // deriving clk_hstx from clk_sys propagates PLL_SYS jitter into the
-        // TMDS bit clock at 378 MHz, producing dots / short dotted lines on
-        // strict HDMI receivers (eye-pattern closure). PLL_USB at a fixed
-        // 126 MHz keeps the TMDS clock decoupled from CPU clock.
+        // Optionally *force* the PLL_USB-sourced HSTX route even for clk_sys
+        // values that are integer multiples of 126. Reason: deriving clk_hstx
+        // from clk_sys propagates PLL_SYS jitter into the TMDS bit clock at
+        // 378 MHz and up, producing dots / short dotted lines on strict HDMI
+        // receivers (eye-pattern closure). PLL_USB at a fixed 126 MHz keeps
+        // the TMDS clock decoupled from CPU clock.
         //
-        // Only safe to reconfigure PLL_USB when the build uses PIO-USB for
-        // gamepads (CFG_TUH_RPI_PIO_USB=1). On TinyUSB-native-USB builds
-        // PLL_USB MUST stay at 48 MHz for USB hardware, so we keep the
-        // original clk_sys-derived HSTX path. Those builds should either
-        // stay at 252 MHz for SGX (no artifacts) or accept the dots at
-        // 378 MHz — the chip has no third clean PLL to use for HSTX.
+        // The native USB hardware needs PLL_USB at 48 MHz, and the chip has
+        // no third clean PLL to use for HSTX, so the fix costs the built-in
+        // USB port:
+        // - PIO-USB builds (CFG_TUH_RPI_PIO_USB=1) do not use that port for
+        //   gamepads, so emulators that run at 378 MHz force the fix at
+        //   compile time.
+        // - TinyUSB-native-USB builds leave it to the user: the Video Clock
+        //   Fix setting, kept in FlashParams because the SD card is not
+        //   mounted yet. With it on, initAll() does not start the USB host
+        //   and USB gamepads cannot be used.
         bool hstx_ok = true;
-#if (SGX || GENESIS_OVERCLOCK_HSTX_FIX || NES_OVERCLOCK_FIX) && CFG_TUH_RPI_PIO_USB
+#if (SGX || GENESIS_OVERCLOCK_HSTX_FIX || NES_OVERCLOCK_FIX || SNES_OVERCLOCK_FIX) && CFG_TUH_RPI_PIO_USB
         const bool force_pll_usb_hstx = true;
+#elif !CFG_TUH_RPI_PIO_USB
+        builtinUsbDisabled = (getFlashParamsOptions() & FLASHPARAM_OPT_HSTX_ON_PLL_USB) != 0;
+        const bool force_pll_usb_hstx = builtinUsbDisabled;
 #else
         const bool force_pll_usb_hstx = false;
 #endif

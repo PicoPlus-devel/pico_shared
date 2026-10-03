@@ -84,6 +84,9 @@ enum class ScanlineType : uint8_t
 #ifndef GENESIS_OVERCLOCK_HSTX_FIX
 #define GENESIS_OVERCLOCK_HSTX_FIX 0
 #endif
+#ifndef SNES_OVERCLOCK_FIX
+#define SNES_OVERCLOCK_FIX 0
+#endif
 #ifndef F_MALLOC_DEBUG
 #define F_MALLOC_DEBUG 0
 #endif
@@ -155,6 +158,10 @@ namespace Frens
     // HSTX; release puts both back. No-ops on builds that never took PLL_USB.
     bool usbDeviceClockAcquire();
     void usbDeviceClockRelease();
+    // True when the Video Clock Fix setting gave PLL_USB to HSTX on a build
+    // without PIO USB. The built-in USB port then has no 48 MHz clock, so its
+    // host stack is never started and USB gamepads cannot be used.
+    bool isBuiltinUsbDisabled();
     bool applyScreenMode(ScreenMode screenMode_);
     bool screenMode(int incr);
     // Flashes the rom named in ROMINFOFILE into the xip flash region, unless
