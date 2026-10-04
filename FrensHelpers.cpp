@@ -1399,6 +1399,8 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
                                 flashProgramSafe(ofs, buffer, bufsize);
                                 ofs += bufsize;
                                 totalBytes += bytesRead;
+                                printf("%u/%llu bytes flashed\n", totalBytes,
+                                       (unsigned long long)filesize);
                                 // keep the usb stack running
                                 tuh_task();
                             }
@@ -2166,12 +2168,48 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
      * returns to XIP immediately, so the fetch of the very next instruction
      * already happens at the unsafe rate. These wrappers run from RAM so the
      * divisor is back in place before any flash access can occur.
+     *
+     * RP2350 has the same problem in a worse form. The operations end in the
+     * bootrom's flash_enter_cmd_xip(), which resets QMI window 0 to a plain 03h
+     * serial read at CLKDIV 4, RXDELAY 0; the SDK saves and restores only window
+     * 1 (PSRAM). At 378 MHz that is a 94.5 MHz 03h read with no sample delay,
+     * at 504 MHz 126 MHz -- far outside what the flash takes. flashrom() streams
+     * a ROM through these wrappers before the emulator starts: at 504 MHz the
+     * FatFs/SD code between two blocks already faulted, at 378 MHz the game
+     * then ran on corrupt instruction fetches and crashed, sooner or later.
+     * So window 0 is captured on the way in and put back on the way out, in the
+     * same interrupts-off RAM window (romflash.cpp in pico-genesisPlus restores
+     * the same three registers after its own writes).
      */
+#if PICO_RP2350
+    struct QmiM0State
+    {
+        uint32_t timing, rfmt, rcmd;
+    };
+
+    static inline __attribute__((always_inline)) QmiM0State saveQmiM0()
+    {
+        return {qmi_hw->m[0].timing, qmi_hw->m[0].rfmt, qmi_hw->m[0].rcmd};
+    }
+
+    static inline __attribute__((always_inline)) void restoreQmiM0(const QmiM0State &s)
+    {
+        qmi_hw->m[0].rfmt = s.rfmt;
+        qmi_hw->m[0].rcmd = s.rcmd;
+        qmi_hw->m[0].timing = s.timing;
+        __compiler_memory_barrier();
+    }
+#endif
+
     void __no_inline_not_in_flash_func(flashEraseSafe)(uint32_t flashOffset, size_t count)
     {
         uint32_t irq = save_and_disable_interrupts();
+#if PICO_RP2350
+        const QmiM0State m0 = saveQmiM0();
         flash_range_erase(flashOffset, count);
-#if !PICO_RP2350
+        restoreQmiM0(m0);
+#else
+        flash_range_erase(flashOffset, count);
         restoreFlashDivisor();
 #endif
         restore_interrupts(irq);
@@ -2180,8 +2218,12 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
     void __no_inline_not_in_flash_func(flashProgramSafe)(uint32_t flashOffset, const uint8_t *data, size_t count)
     {
         uint32_t irq = save_and_disable_interrupts();
+#if PICO_RP2350
+        const QmiM0State m0 = saveQmiM0();
         flash_range_program(flashOffset, data, count);
-#if !PICO_RP2350
+        restoreQmiM0(m0);
+#else
+        flash_range_program(flashOffset, data, count);
         restoreFlashDivisor();
 #endif
         restore_interrupts(irq);
