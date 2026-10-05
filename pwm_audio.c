@@ -8,7 +8,7 @@
 #include "hardware/clocks.h"
 #include "hardware/sync.h"
 
-#define RING_SIZE 1024u                 /* stereo frames, power of two */
+#define RING_SIZE 2048u                 /* stereo frames, power of two */
 #define RING_MASK (RING_SIZE - 1u)
 
 static uint32_t ring[RING_SIZE];        /* duty values: left low 16 bits, right high 16 */
@@ -16,7 +16,7 @@ static volatile uint32_t wr_idx;        /* written by the producer only */
 static volatile uint32_t rd_idx;        /* written by the interrupt only */
 static uint32_t wrap_top;               /* PWM counter top: clk_sys / sample rate - 1 */
 static uint slice_l, slice_r;
-static bool playing;                    /* false: holding, waiting for half a ring */
+static volatile bool playing;           /* false: holding, waiting for half a ring; read by the producer */
 static bool initialized;
 
 static void __not_in_flash_func(pwm_audio_irq)(void)
@@ -104,10 +104,9 @@ void pwm_audio_init(uint32_t sample_rate)
     irq_add_shared_handler(PWM_DEFAULT_IRQ_NUM(), pwm_audio_irq, PICO_SHARED_IRQ_HANDLER_DEFAULT_ORDER_PRIORITY);
     irq_set_enabled(PWM_DEFAULT_IRQ_NUM(), true);
     initialized = true;
-    pwm_set_mask_enabled((1u << slice_l) | (1u << slice_r));
+    /* Start both slices in the same cycle without touching the enable bits of
+       other slices (pwm_set_mask_enabled() would clear them). */
+    hw_set_bits(&pwm_hw->en, (1u << slice_l) | (1u << slice_r));
 }
 
-#else
-void pwm_audio_init(uint32_t sample_rate) { (void)sample_rate; }
-void pwm_audio_push(int left, int right) { (void)left; (void)right; }
-#endif
+#endif // PWM_AUDIO_IS_ENABLED
