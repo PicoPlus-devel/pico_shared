@@ -79,6 +79,12 @@ namespace {
         .pinClock = 12,
         .invert = true,
     };
+    // Olimex RP2040-PICO-PC (with a Pico 2: HSTX is used instead, see BoardConfigs.cmake)
+    constexpr dvi::Config dviConfig_OlimexPicoPC = {
+        .pinTMDS = {14, 18, 16},
+        .pinClock = 12,
+        .invert = true,
+    };
 }
 #ifndef DVICONFIG
 #define DVICONFIG dviConfig_PimoroniDemoDVSock

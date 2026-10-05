@@ -1,5 +1,6 @@
 #if PICO_RP2350
 #include "hstx.h"
+#include "pwm_audio.h"
 #include "pico/multicore.h" 
 #include "stdio.h"
 // Custom changes
@@ -271,6 +272,7 @@ uint32_t hstx_getframecounter(void)
 
 void __not_in_flash_func(hstx_push_audio_sample)(const int left, const int right)
 {
+    pwm_audio_push(left, right); // the PWM audio jack plays the same samples (no-op without one)
     static int g_hdmi_audio_frame_counter = 0;
     static audio_sample_t acc_buf[4];
     static int acc_count = 0;

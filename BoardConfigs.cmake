@@ -578,7 +578,69 @@ elseif ( HW_CONFIG EQUAL 14 )
         set(GPIOHSTXINVERTED 0 CACHE STRING "Set to 1 if HSTX pins are inverted: D- = D+ - 1, not inverted (default): D- = D+ + 1")
    endif()
    set(PSRAM_CS_PIN 8 CACHE STRING "Select the GPIO pin for PSRAM chip select")
+elseif ( HW_CONFIG EQUAL 15 )
+    # --------------------------------------------------------------------
+    # Olimex RP2040-PICO-PC with a Raspberry Pi Pico 2 (RP2350A)
+    # HDMI on GPIO12..19: clock 12/13, D0 14/15, D2 16/17, D1 18/19, P/N
+    # swapped. USB-A host on the Pico's native USB. SD card on SPI0.
+    # NES/Dendy pad on UEXT (CLK 5, LAT 9, DATA 20). GPIO0/1 are the PS/2
+    # port, GPIO26 is DVI_CEC. Sound goes to HDMI and, at the same time, to
+    # the PWM audio jack (left GPIO28, right GPIO27; GPIO23 high keeps the
+    # Pico's SMPS out of its noisy power-save mode). Optional PSRAM chip
+    # select on GPIO8.
+    # The last 260 KB of the 4 MB flash hold pico-launcher; ROMs are never
+    # written there (FLASH_RESERVED_TOP).
+    # --------------------------------------------------------------------
+    set(DVICONFIG "dviConfig_OlimexPicoPC" CACHE STRING "Select a default pin configuration from common_dvi_pin_configs.h")
+    set(LED_GPIO_PIN "0" CACHE STRING "Select the GPIO pin for LED") # use 0 for onboard LED (Pico/Pico2)
+    set(SD_CS     "22" CACHE STRING "Specify the Chip Select GPIO pin for the SD card")
+    set(SD_SCK    "6" CACHE STRING "Specify de Clock GPIO pin for the SD card")
+    set(SD_MOSI   "7" CACHE STRING "Select the Master Out Slave In GPIO pin for the SD card")
+    set(SD_MISO   "4" CACHE STRING "Select the Master In Slave Out GPIO pin for the SD card")
+    set(SD_SPI "spi0" CACHE STRING "Select the SPI bus for SD card")
+    set(NES_CLK  "5" CACHE STRING "Select the Clock GPIO pin for NES controller")
+    set(NES_DATA "20" CACHE STRING "Select the Data GPIO pin for NES controller")
+    set(NES_LAT  "9" CACHE STRING "Select the Latch GPIO pin for NES controller")
+    set(NES_PIO  "pio1" CACHE STRING "Select the PIO for NES controller")
+    set(NES_CLK_1  "-1" CACHE STRING "Select the Clock GPIO pin for second NES controller")
+    set(NES_DATA_1 "-1" CACHE STRING "Select the Data GPIO pin for second NES controller")
+    set(NES_LAT_1  "-1" CACHE STRING "Select the Latch GPIO pin for second NES controller")
+    set(NES_PIO_1 "pio1" CACHE STRING "Select the PIO for second NES controller")
+    set(WII_SDA "-1" CACHE STRING "Select the SDA GPIO pin for Wii Classic controller")
+    set(WII_SCL "-1" CACHE STRING "Select the SCL GPIO pin for Wii Classic controller")
+    set(WIIPAD_I2C "i2c1" CACHE STRING "Select the I2C bus for Wii Classic controller")
+    set(UART_ENABLED 0 CACHE STRING "Enable UART output") # GPIO0/1 are the PS/2 port
+    set(USE_I2S_AUDIO 0 CACHE STRING "Enable I2S audio output")
+    set(PICO_AUDIO_I2S_DATA_PIN -1 CACHE STRING "Select the GPIO pin for I2S data")
+    set(PICO_AUDIO_I2S_CLOCK_PIN_BASE -1 CACHE STRING "Select the GPIO pin for I2S clock")
+    set(PICO_AUDIO_I2S_PIO 1 CACHE STRING "Select the PIO for I2S audio output")
+    set(PICO_AUDIO_I2S_CLOCK_PINS_SWAPPED 0 CACHE STRING "Set to 1 if the I2S clock pins are swapped")
+    set(PICO_AUDIO_I2S_RESET_PIN -1 CACHE STRING "Select the GPIO pin for I2S reset")
+    set(PIO_USB_USE_PIO 2 CACHE BOOL "Select the PIO used for PIO-USB")
+    set(PIO_DP_PLUS_PIN -1 CACHE STRING "PIO USB DP pin.")
+    set(FLASH_RESERVED_TOP 266240 CACHE STRING "Bytes at the end of flash that ROMs must not overwrite") # 260 KB, pico-launcher
+    set(PWM_AUDIO_PIN_L 28 CACHE STRING "GPIO of the left PWM audio channel, -1 = no PWM audio")
+    set(PWM_AUDIO_PIN_R 27 CACHE STRING "GPIO of the right PWM audio channel")
+    set(PWM_AUDIO_SMPS_PIN 23 CACHE STRING "GPIO driven high to put the SMPS in PWM mode, -1 = none")
+    if ( USE_HSTX EQUAL 1 AND NOT DEFINED GPIOHSTXD0 AND FORCE_DVI EQUAL 0)
+        set(GPIOHSTXCK 13 CACHE STRING "HSTX CK+ pin")
+        set(GPIOHSTXD0 15 CACHE STRING "HSTX D0+ pin")
+        set(GPIOHSTXD1 19 CACHE STRING "HSTX D1+ pin")
+        set(GPIOHSTXD2 17 CACHE STRING "HSTX D2+ pin")
+        set(GPIOHSTXINVERTED 1 CACHE STRING "Set to 1 if HSTX pins are inverted: D- = D+ - 1, not inverted (default): D- = D+ + 1")
+    endif()
+    set(PSRAM_CS_PIN 8 CACHE STRING "Select the GPIO pin for PSRAM chip select")
 endif ( )
+if ( NOT DEFINED FLASH_RESERVED_TOP )
+    set(FLASH_RESERVED_TOP 0 CACHE STRING "Bytes at the end of flash that ROMs must not overwrite")
+endif()
+if ( NOT DEFINED PWM_AUDIO_PIN_L )
+    set(PWM_AUDIO_PIN_L -1 CACHE STRING "GPIO of the left PWM audio channel, -1 = no PWM audio")
+    set(PWM_AUDIO_PIN_R -1 CACHE STRING "GPIO of the right PWM audio channel")
+endif()
+if ( NOT DEFINED PWM_AUDIO_SMPS_PIN )
+    set(PWM_AUDIO_SMPS_PIN -1 CACHE STRING "GPIO driven high to put the SMPS in PWM mode, -1 = none")
+endif()
 # --------------------------------------------------------------------
 if (NOT DEFINED ENABLE_VU_METER)
     set(ENABLE_VU_METER 0 CACHE BOOL "Enable VU meter (fruitjam NeoPixel leds)")

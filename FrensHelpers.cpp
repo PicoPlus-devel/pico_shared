@@ -34,6 +34,7 @@
 
 #include "PicoPlusPsram.h"
 #include "vumeter.h"
+#include "pwm_audio.h"
 
 // Pico W devices use a GPIO on the WIFI chip for the LED,
 // so when building for Pico W, CYW43_WL_GPIO_LED_PIN will be defined
@@ -1893,7 +1894,9 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
             // printf("Flash size in bytes   :   %8d (%d)Kbytes\n", PICO_FLASH_SIZE_BYTES, PICO_FLASH_SIZE_BYTES / 1024);
             printf("Flash size in bytes   :   %8d (%d Kbytes)\n", flashcap, flashcap / 1024);
             // uint8_t *flash_end = (uint8_t *)&__flash_binary_start + PICO_FLASH_SIZE_BYTES - 1;
-            uint8_t *flash_end = (uint8_t *)&__flash_binary_start + flashcap - 1;
+            // FLASH_RESERVED_TOP: bytes at the end of flash that belong to
+            // something else (pico-launcher on the Olimex PICO-PC).
+            uint8_t *flash_end = (uint8_t *)&__flash_binary_start + flashcap - FLASH_RESERVED_TOP - 1;
             printf("Flash end             : 0x%08x\n", flash_end);
             printf("Size program in flash :   %8d bytes (%d) Kbytes\n", &__flash_binary_end - &__flash_binary_start, (&__flash_binary_end - &__flash_binary_start) / 1024);
             // Place ROM one full flash sector above FlashParams so the sector
@@ -2018,6 +2021,7 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
         initVintageControllers(CPUFreqKHz);
         // TODO: DMA chan 1-3 are used for PIO0, chan 4-7 for PIO1, Assuming PIO1 is used for audio.
         EXT_AUDIO_SETUP(USE_I2S_AUDIO, DVIAUDIOFREQ, GetUnUsedDMAChan(4)); // Initialize external audio if needed
+        pwm_audio_init(DVIAUDIOFREQ);                                      // PWM audio jack, if the board has one
         srand(get_rand_32());                                              // Seed the random number generator with a random value
 #if ENABLE_VU_METER
         initializeNeoPixelStrip();

@@ -20,6 +20,7 @@ vumeter.cpp
 soundrecorder.cpp
 samplesound.c
 wavplayer.cpp
+pwm_audio.c
 FlashParams.cpp
 # USB drive mode. Both compile to nothing unless the top-level CMakeLists
 # defines FRENS_USB_MSC=1, which it only does for RP2350 builds.
@@ -58,6 +59,10 @@ target_compile_definitions(pico_shared INTERFACE
  NOHSTXCLOCK=1 # Do not set the hstx clock in the pico_hdmi driver, as it is already set FrensHelpers.cpp
  USE_PICO_EXTRAS_I2S=$<BOOL:${USE_PICO_EXTRAS_I2S}>
  BOOTLOADER_BUILD=${BOOTLOADER_BUILD}
+ FLASH_RESERVED_TOP=${FLASH_RESERVED_TOP} # end of flash kept free of ROMs (BoardConfigs.cmake)
+ PWM_AUDIO_PIN_L=${PWM_AUDIO_PIN_L} # PWM audio jack, -1 = none (pwm_audio.h)
+ PWM_AUDIO_PIN_R=${PWM_AUDIO_PIN_R}
+ PWM_AUDIO_SMPS_PIN=${PWM_AUDIO_SMPS_PIN}
 )
 pico_generate_pio_header(${projectname} ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
 target_link_libraries(pico_shared 

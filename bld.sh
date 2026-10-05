@@ -43,6 +43,7 @@ function usage() {
 	echo "     12: Murmulator M1"
 	echo "     13: Murmulator M2 (rp2350 only)"
 	echo "     14: Adafruit Feather RP2350 with TLV320DAC3100 I2S DAC and sdcard breakout board and PIO USB."
+	echo "     15: Olimex RP2040-PICO-PC with a Pico 2 (rp2350 only)"
 	echo "  -m: Run cmake only, do not build the project"
 	echo "  -e: use the pico-extras based I2S audio driver (default: legacy custom driver)"
 	echo "  -h: display this help"
@@ -109,8 +110,8 @@ while getopts "muwhd2rc:t:p:iDeb" opt; do
       ;;
     c)
       HWCONFIG=$OPTARG
-	  # imply pico2 for HWCONFIG 5, 7, 8, 9, 13 and 14
-	  if [[ $HWCONFIG -eq 5 || $HWCONFIG -eq 7 || $HWCONFIG -eq 8 || $HWCONFIG -eq 9 || $HWCONFIG -eq 13 || $HWCONFIG -eq 14 ]] ; then
+	  # imply pico2 for HWCONFIG 5, 7, 8, 9, 13, 14 and 15
+	  if [[ $HWCONFIG -eq 5 || $HWCONFIG -eq 7 || $HWCONFIG -eq 8 || $HWCONFIG -eq 9 || $HWCONFIG -eq 13 || $HWCONFIG -eq 14 || $HWCONFIG -eq 15 ]] ; then
 		  PICO_BOARD=pico2
 		  PICO_PLATFORM=rp2350-arm-s
 		  picoarmIsSet=0    # not set via command line argument
@@ -216,8 +217,8 @@ if [[ $PICO_PLATFORM == rp2350* ]] ; then
 		exit 1
 	fi
 else
-	# HWCONFIG 5, 7, 8 and 9 is not compatible with pico
-	if [[ $HWCONFIG -eq 5 || $HWCONFIG -eq 7 || $HWCONFIG -eq 8 || $HWCONFIG -eq 9 ]] ; then
+	# HWCONFIG 5, 7, 8, 9 and 15 is not compatible with pico
+	if [[ $HWCONFIG -eq 5 || $HWCONFIG -eq 7 || $HWCONFIG -eq 8 || $HWCONFIG -eq 9 || $HWCONFIG -eq 15 ]] ; then
 		echo "HWCONFIG $HWCONFIG is not compatible with Pico"
 		exit 1
 	fi
@@ -332,8 +333,12 @@ case $HWCONFIG in
 		UF2="AdafruitFeatherRP2350_TLV320DAC3100"
 		USESIMPLEFILENAMES=1
 		;;
+	15)
+		UF2="OlimexPicoPC"
+		USESIMPLEFILENAMES=1
+		;;
 	*)
-		echo "Invalid value: $HWCONFIG specified for option -c, must be 1 to 13"
+		echo "Invalid value: $HWCONFIG specified for option -c, must be 1 to 15"
 		exit 1
 		;;
 esac
