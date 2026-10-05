@@ -10,9 +10,12 @@
  *
  * Samples go through a single-producer ring (core1 resampler, or the menu
  * wav player on core0) to the PWM wrap interrupt on the core that called
- * pwm_audio_init(); the PWM carrier runs at the sample rate. The ring is
- * kept around half full by dropping or repeating a sample, which absorbs
- * the small rate difference between the HDMI audio clock and clk_sys.
+ * pwm_audio_init(); the PWM carrier runs at the sample rate. Playback starts
+ * once the ring is half full. When the fill leaves the 1/4..3/4 band, one
+ * sample is dropped or repeated, which absorbs the small rate difference
+ * between the HDMI audio clock and clk_sys. That band must be wider than the
+ * largest burst a producer pushes at once: several emulators push a whole
+ * frame (882 samples at 50 Hz), hence a 2048-frame ring.
  * When no samples arrive (menu, pause) the output holds the last value.
  */
 #include <stdint.h>
@@ -30,10 +33,17 @@
 extern "C" {
 #endif
 
+#if PWM_AUDIO_IS_ENABLED
 /* Call on core0 after the system clock is final. */
 void pwm_audio_init(uint32_t sample_rate);
 /* Signed 16-bit samples. Safe from either core, one producer at a time. */
 void pwm_audio_push(int left, int right);
+#else
+/* No PWM jack: no-ops that compile away, so hstx_push_audio_sample(), which
+   runs from SRAM, does not call into flash for every sample. */
+static inline void pwm_audio_init(uint32_t sample_rate) { (void)sample_rate; }
+static inline void pwm_audio_push(int left, int right) { (void)left; (void)right; }
+#endif
 
 #ifdef __cplusplus
 }

@@ -1894,9 +1894,12 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
             // printf("Flash size in bytes   :   %8d (%d)Kbytes\n", PICO_FLASH_SIZE_BYTES, PICO_FLASH_SIZE_BYTES / 1024);
             printf("Flash size in bytes   :   %8d (%d Kbytes)\n", flashcap, flashcap / 1024);
             // uint8_t *flash_end = (uint8_t *)&__flash_binary_start + PICO_FLASH_SIZE_BYTES - 1;
+            // Count from XIP_BASE, not &__flash_binary_start: a bootloader build is
+            // linked at 0x10080000, which would put flash_end 512 KB past the chip
+            // and let a ROM that is too large wrap around over the bootloader.
             // FLASH_RESERVED_TOP: bytes at the end of flash that belong to
             // something else (pico-launcher on the Olimex PICO-PC).
-            uint8_t *flash_end = (uint8_t *)&__flash_binary_start + flashcap - FLASH_RESERVED_TOP - 1;
+            uint8_t *flash_end = (uint8_t *)XIP_BASE + flashcap - FLASH_RESERVED_TOP - 1;
             printf("Flash end             : 0x%08x\n", flash_end);
             printf("Size program in flash :   %8d bytes (%d) Kbytes\n", &__flash_binary_end - &__flash_binary_start, (&__flash_binary_end - &__flash_binary_start) / 1024);
             // Place ROM one full flash sector above FlashParams so the sector
