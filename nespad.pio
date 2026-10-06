@@ -4,9 +4,11 @@
 ; can be handled between trigger/read, but it's NOT recommended to immediately
 ; trigger another read and then catch the result in the same place on the
 ; next frame, as this introduces latency. Ideal time is at frame start.
-; 16 clocks are issued so SNES pads (same protocol, 16-bit shift register)
+; 18 clocks are issued so SNES pads (same protocol, 16-bit shift register)
 ; are read in full; NES pads shift out low for clocks 9-16, which the CPU
-; side uses to tell the two apart.
+; side uses to tell the two apart. Clocks 17-18 read low on an official SNES
+; pad, even an idle one, and high on an empty port.
+; Not built: nespad.cpp holds the program as hand-assembled instructions.
 
 .program nespad
 .side_set 1
@@ -14,13 +16,13 @@
 .wrap_target
   irq wait 0      side 1      ; Set IRQ and wait for CPU to clear it
   set pins, 1     side 1 [1]  ; Latch high, 3 uS total
-  set x, 15       side 1      ; Set bit counter
+  set x, 17       side 1      ; Set bit counter
   set pins, 0     side 1      ; Latch low
 bitloop:
   set pins, 0     side 1 [4] 
   set pins, 0     side 0 [1]
   in  pins, 1     side 1 [3]  ; Read bit after falling clock or latch, wait 2 uS
-  jmp x-- bitloop side 1      ; Clock high, repeat for 16 bits
-; Autopush will write the 16-bit word to FIFO at this point
+  jmp x-- bitloop side 1      ; Clock high, repeat for 18 bits
+; Autopush will write the 18-bit word to FIFO at this point
 .wrap
 

@@ -3,11 +3,12 @@
 
 #define nespad_wrap_target 0
 
-// Both program variants clock 16 bits so SNES controllers (which share the
+// Both program variants clock 18 bits so SNES controllers (which share the
 // NES latch/clock/data protocol but shift out 16 bits: B,Y,Select,Start,
 // Up,Down,Left,Right,A,X,L,R + 4 ID bits) are read in full. Plain NES
 // controllers simply shift out low for bits 9-16; nespad_read_finish()
-// detects that and masks the result back to 8 bits.
+// detects that and masks the result back to 8 bits. Clocks 17-18 tell an
+// idle SNES pad from an empty port, see nespad_decode().
 #if HW_CONFIG == 12 || HW_CONFIG == 13 // Murmulator M1/M2 bothe controllers ahare latch and clock
 static const uint16_t nespad_program_instructions[] = {
     //     .wrap_target
@@ -15,7 +16,7 @@ static const uint16_t nespad_program_instructions[] = {
     // from https://github.com/fhoedemakers/pico-infonesPlus/pull/167
     0xD020, //  0: irq    wait 0          side 1
     0xFA01, //  1: set    pins, 1         side 1 [10]
-    0xF02F, //  2: set    x, 15           side 1
+    0xF031, //  2: set    x, 17           side 1
     0xE000, //  3: set    pins, 0         side 0
     0x4401, //  4: in     pins, 1         side 0 [4]
     0xF400, //  5: set    pins, 0         side 1 [4]
@@ -27,7 +28,7 @@ static const uint16_t nespad_program_instructions[] = {
     //     .wrap_target
     0xd020, //  0: irq    wait 0          side 1
     0xf101, //  1: set    pins, 1         side 1 [1]
-    0xf02f, //  2: set    x, 15           side 1
+    0xf031, //  2: set    x, 17           side 1
     0xf000, //  3: set    pins, 0         side 1
     0xf400, //  4: set    pins, 0         side 1 [4]
     0xe100, //  5: set    pins, 0         side 0 [1]
@@ -113,7 +114,7 @@ bool nespad_begin(uint8_t padnum, uint32_t cpu_khz, uint8_t clkPin, uint8_t data
   pio_sm_set_pindirs_with_mask(pio[padnum], sm[padnum],
                                (1u << clkPin) | (1u << latPin),
                                (1u << clkPin) | (1u << dataPin) | (1u << latPin));
-  sm_config_set_in_shift(&c, true, true, 16);
+  sm_config_set_in_shift(&c, true, true, 18);
   sm_config_set_clkdiv_int_frac(&c, cpu_khz / 1000, 0);
 
   pio_set_irq0_source_enabled(pio[padnum], (pio_interrupt_source)(pis_interrupt0 + sm[padnum]), false);
@@ -149,7 +150,7 @@ static uint16_t nespad_decode(int padnum)
     return 0;
   // Right-shift was used in sm config so bit order matches NES controller
   // bits used elsewhere in picones, but does require shifting down...
-  uint32_t raw = (pio_sm_get_blocking(pio[padnum], sm[padnum]) >> 16) ^ 0xFFFF;
+  uint32_t raw = (pio_sm_get_blocking(pio[padnum], sm[padnum]) >> 14) ^ 0x3FFFF;
   nespad_raw_ext[padnum] = (uint16_t)raw;
   // NES controller: the 4021's serial input is grounded, so clocks 9-16
   // read low on the wire = 1 after inversion. A SNES controller drives the
@@ -160,10 +161,14 @@ static uint16_t nespad_decode(int padnum)
     nespad_padtype[padnum] = NESPAD_TYPE_NES;
     raw &= 0x00FF; // NES pad: keep the 8 real buttons
   }
-  else if (raw & 0x0F00)
+  else if ((raw & 0x30000) == 0x30000 || (raw & 0x0F00))
   {
-    // A, X, L or R is down, and only a SNES pad has those. Sticky: an idle
-    // SNES pad is indistinguishable from an empty port on the wire.
+    // An official SNES pad pulls the line low after its 16 bits (as ares and
+    // Mesen2 model it), so clocks 17-18 read 1 even while it is idle, where an
+    // empty port and the 8-bit SNES->NES adapter cable leave the line high.
+    // Pads that do not, are recognised by A, X, L or R being down: only a SNES
+    // pad has those. Sticky, since without that an idle pad looks like an empty
+    // port, whose first B press would otherwise read as NES A.
     nespad_padtype[padnum] = NESPAD_TYPE_SNES;
   }
   else if (nespad_padtype[padnum] == NESPAD_TYPE_NES)

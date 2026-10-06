@@ -128,6 +128,7 @@ namespace FrensSettings
         printf("genesisPad: %d\n", settings.flags.genesisPad);
         printf("nesPalette: %d\n", settings.flags.nesPalette);
         printf("hstxClockFix: %d\n", settings.flags.hstxClockFix);
+        printf("snesButtonLayout: %d\n", settings.flags.snesButtonLayout);
         printf("\n");
     }
     void resetsettings(struct settings *settingsPtr)
@@ -171,6 +172,7 @@ namespace FrensSettings
         settings.flags.genesisPad = 0; // default: Auto, the cartridge header decides between 3 and 6 buttons
         settings.flags.nesPalette = 0; // default: the palette the board has always used
         settings.flags.hstxClockFix = 0; // default: HSTX from clk_sys, built-in USB port available
+        settings.flags.snesButtonLayout = 0; // default: NES layout, the buttons games have always used
         settings.flags.reserved = 0;  // clear spare bits
         snprintf(settings.currentDir, sizeof(settings.currentDir), "/roms/%s", emulatorstrings[static_cast<int>(emulatorType)]);
     }

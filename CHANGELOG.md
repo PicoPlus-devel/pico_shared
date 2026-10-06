@@ -1,5 +1,10 @@
 # Release notes
 
+## 6/10/2026
+
+- **Button Layout setting** (NES only): NES or SNES. With SNES, a pad with four face buttons plays NES B and A on its left and bottom button (SNES Y and B), in game only; the menu is unchanged. New `snesButtonLayout` flag taken from the spare bits, so saved settings stay valid and read as NES. New `GamePadState::snesFaceButtons`, set by the drivers of the pads with a diamond of four (DS4, DualSense, PS Classic, XInput, Manta SNES).
+- **Fix: SNES controller on the GPIO port**: after a restart, and after every switch between menu and game, the first press of B acted as A until A, X, L or R had been pressed. The port is now read with 18 clocks; an official SNES pad holds the line low after its 16 buttons, so it is recognised while idle. An empty port and the SNES->NES adapter cable are unchanged.
+
 ## 1/10/2026
 
 - **Controller Test exits on SELECT+UP** (held 2 s) instead of SELECT+START, which some 8BitDo wireless pads claim for themselves (pico-infonesPlus #255).
