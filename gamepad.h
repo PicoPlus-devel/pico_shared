@@ -47,7 +47,12 @@ namespace io
         uint8_t axis[3]{0x80, 0x80, 0x80};
         Hat hat{Hat::RELEASED};
         uint32_t buttons{0};
-       
+        // Four face buttons in a diamond (SNES, Xbox, PlayStation): Button::B is the
+        // bottom one and Button::Y the left one (with abSwapped set). Set by the driver
+        // when the pad is recognised; an emulator that offers a SNES button layout
+        // remaps only these pads, so NES, Genesis and unknown pads keep their mapping.
+        bool snesFaceButtons{false};
+
     public:
         void convertButtonsFromAxis(int axisX, int axisY);
         void convertButtonsFromHat();

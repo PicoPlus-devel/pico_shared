@@ -426,18 +426,21 @@ extern "C"
         isManta[player] = 0;
         isMantaVariant[player] = 0;
         auto &gp = io::getCurrentGamePadState(player);
+        gp.snesFaceButtons = false; // set below for the pads that have a diamond of four
 
         if (isDS4(vid, pid))
         {
             printf("Dual Shock 4 Controller detected - device address = %d, instance = %d, player %d is mounted - ", dev_addr, instance, player + 1);
             gp.GamePadName = "Dual Shock 4";
             gp.GamePadShortName = "DS4";
+            gp.snesFaceButtons = true;
         }
         else if (isDS5(vid, pid))
         {
             printf("Dual Sense Controller detected - device address = %d, instance = %d, player %d is mounted - ", dev_addr, instance, player + 1);
             gp.GamePadName = "Dual Sense";
             gp.GamePadShortName = "DS5";
+            gp.snesFaceButtons = true;
         }
         else if (isMantaPad(vid, pid))
         {
@@ -447,6 +450,7 @@ extern "C"
             {
                 gp.GamePadName = "Manta SNES";
                 gp.GamePadShortName = "MSNES";
+                gp.snesFaceButtons = true;
             }
             else
             {
@@ -462,6 +466,7 @@ extern "C"
             isMantaVariant[player] = 1;
             gp.GamePadName = "Manta SNES";
             gp.GamePadShortName = "MSNES";
+            gp.snesFaceButtons = true;
         }
         else if (isGenesisMini(vid, pid))
         {
@@ -480,6 +485,7 @@ extern "C"
             printf("PlayStation Classic controller detected - device address = %d, instance = %d, player %d is mounted - ", dev_addr, instance, player + 1);
             gp.GamePadName = "PSClassic";
             gp.GamePadShortName = "PSC";
+            gp.snesFaceButtons = true;
         }
         else
         {
@@ -546,6 +552,7 @@ extern "C"
             gp.flagConnected(false);
             gp.GamePadName = nullptr;
             gp.GamePadShortName = nullptr;
+            gp.snesFaceButtons = false;
             unassignPlayer(dev_addr);
         }
         else
@@ -698,6 +705,7 @@ extern "C"
                     isManta[player] = 2;
                     gp.GamePadName = "Manta SNES";
                     gp.GamePadShortName = "MSNES";
+                    gp.snesFaceButtons = true;
                     // printf("MantaPad SNES mode activated\n");
                 }
                 // printf("MantaPad report: %02x %02x %02x %02x %02x %02x %02x %02x\n",
@@ -1177,6 +1185,7 @@ extern "C"
             return;
         }
         auto &gp = io::getCurrentGamePadState(player);
+        gp.snesFaceButtons = true;
         // If this is a Xbox 360 Wireless controller we need to wait for a connection packet
         // on the in pipe before setting LEDs etc. So just start getting data until a controller is connected.
         if (xinput_itf->type == XBOX360_WIRELESS && xinput_itf->connected == false)
@@ -1221,6 +1230,7 @@ extern "C"
             auto &gp = io::getCurrentGamePadState(player);
             gp.GamePadName = nullptr;
             gp.GamePadShortName = nullptr;
+            gp.snesFaceButtons = false;
             gp.flagConnected(false);
             unassignPlayer(dev_addr);
             printf("XINPUT UNMOUNTED %02x %d player %d\n", dev_addr, instance, player + 1);

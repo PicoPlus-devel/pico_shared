@@ -19,8 +19,9 @@ extern uint16_t nespad_states_ext[2];
 extern uint16_t nespad_raw_ext[2];
 // Which pad the port is talking to. Needed to name buttons: bit0 is A on a
 // NES pad but B on a SNES pad. UNKNOWN means the wire cannot tell yet - an
-// idle SNES pad, an empty port and an 8-bit SNES->NES adapter that leaves the
-// data line high after 8 clocks all read as all-zeros.
+// empty port, an 8-bit SNES->NES adapter that leaves the data line high after
+// 8 clocks, and an idle SNES pad that does not pull it low after its 16 bits
+// (official ones do) all read as all-zeros.
 enum
 {
     NESPAD_TYPE_UNKNOWN = 0,
