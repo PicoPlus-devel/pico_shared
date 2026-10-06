@@ -4115,6 +4115,7 @@ int showSettingsMenu(bool calledFromGame)
         if (i == MOPT_NES_PALETTE) continue;   // listed with the display options, below
         if (i == MOPT_HSTX_CLOCK_FIX) continue; // listed after Overclock, below
         if (i == MOPT_BUTTON_LAYOUT) continue;  // listed before Rapid Fire on A, below
+        if (i == MOPT_TATE_MODE) continue;      // listed after Screen Mode, below
         // The three action entries that close the list are appended after this
         // loop in a fixed order, so skip them here.
         if (i == MOPT_CONTROLLER_TEST) continue;
@@ -4139,6 +4140,12 @@ int showSettingsMenu(bool calledFromGame)
             {
                 visibleIndices[visibleCount++] = i;
             }
+        }
+        // Tate mode goes right after Screen Mode: it is appended at the end of the enum,
+        // but it is a display option. Only vertical arcade games show it.
+        if (i == MOPT_SCREENMODE && g_settings_visibility[MOPT_TATE_MODE] > 0)
+        {
+            visibleIndices[visibleCount++] = MOPT_TATE_MODE;
         }
         // Overscan in menu goes right after the menu colors: it is appended at the end
         // of the enum, but it belongs with them. Forced visible for the same reason as
@@ -4642,6 +4649,23 @@ int showSettingsMenu(bool calledFromGame)
             {
                 label = "Button Layout";
                 value = working.flags.snesButtonLayout ? "SNES" : "NES";
+                break;
+            }
+            case MenuSettingsIndex::MOPT_TATE_MODE:
+            {
+                label = "Tate mode";
+                switch (working.flags.tateMode)
+                {
+                case 0:
+                    value = "Off";
+                    break;
+                case 1:
+                    value = "Bottom left";  // monitor turned clockwise
+                    break;
+                default:
+                    value = "Bottom right"; // monitor turned counter-clockwise
+                    break;
+                }
                 break;
             }
             case MenuSettingsIndex::MOPT_FDS_DISK_SWAP:
@@ -5348,6 +5372,17 @@ int showSettingsMenu(bool calledFromGame)
                         else
                             m = (m == 0) ? 2 : m - 1;
                         working.flags.genesisPad = m;
+                        break;
+                    }
+                    case MOPT_TATE_MODE:
+                    {
+                        // Off -> Bottom left -> Bottom right
+                        int m = working.flags.tateMode;
+                        if (right)
+                            m = (m + 1) % 3;
+                        else
+                            m = (m == 0) ? 2 : m - 1;
+                        working.flags.tateMode = m;
                         break;
                     }
                     case MOPT_NES_PALETTE:

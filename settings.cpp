@@ -7,7 +7,7 @@ struct settings settings;
 namespace FrensSettings
 {
     #define SETTINGSFILE "/settings_%s.dat" // File to store settings
-    static const char *emulatorstrings[10] = { "NES", "SMS", "GB", "MD", "MUL", "PCE", "O2E", "SNES", "TI99", "ORUN" };
+    static const char *emulatorstrings[11] = { "NES", "SMS", "GB", "MD", "MUL", "PCE", "O2E", "SNES", "TI99", "ORUN", "PHNX" };
     static char settingsFileName[21] = {};
     static emulators emulatorTypeForSettings = emulators::MULTI;
     char *getSettingsFileName()
@@ -129,6 +129,7 @@ namespace FrensSettings
         printf("nesPalette: %d\n", settings.flags.nesPalette);
         printf("hstxClockFix: %d\n", settings.flags.hstxClockFix);
         printf("snesButtonLayout: %d\n", settings.flags.snesButtonLayout);
+        printf("tateMode: %d\n", settings.flags.tateMode);
         printf("\n");
     }
     void resetsettings(struct settings *settingsPtr)
@@ -173,6 +174,7 @@ namespace FrensSettings
         settings.flags.nesPalette = 0; // default: the palette the board has always used
         settings.flags.hstxClockFix = 0; // default: HSTX from clk_sys, built-in USB port available
         settings.flags.snesButtonLayout = 0; // default: NES layout, the buttons games have always used
+        settings.flags.tateMode = 0; // default: vertical games turned upright for a normal monitor
         settings.flags.reserved = 0;  // clear spare bits
         snprintf(settings.currentDir, sizeof(settings.currentDir), "/roms/%s", emulatorstrings[static_cast<int>(emulatorType)]);
     }
