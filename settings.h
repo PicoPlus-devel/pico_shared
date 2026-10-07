@@ -77,7 +77,8 @@ namespace FrensSettings
         SNES = 7,
         TI99 = 8,
         OUTRUN = 9,
-        PHOENIX = 10
+        PHOENIX = 10,
+        MOONCRESTA = 11
     } emulators;
     static emulators emulatorType = NES;
     void initSettings(emulators emu) ;

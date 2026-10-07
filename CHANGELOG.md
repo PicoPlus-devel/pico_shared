@@ -2,6 +2,7 @@
 
 ## 6/10/2026
 
+- **Moon Cresta** added as an emulator type (`MOONCRESTA`, settings file `/settings_MCRS.dat`).
 - **Phoenix** added as an emulator type (`PHOENIX`, settings file `/settings_PHNX.dat`).
 - **Tate mode setting** (vertical arcade games only): Off, Bottom left or Bottom right. Off turns the picture upright for a normal screen; the other two show it unrotated for a monitor turned on its side, named after where the monitor's bottom edge ends up. Listed under Scanline Type, shown only when an emulator sets `MOPT_TATE_MODE` visible. New `tateMode` flag taken from the spare bits, so saved settings stay valid and read as Off.
 - **Button Layout setting** (NES only): NES or SNES. With SNES, a pad with four face buttons plays NES B and A on its left and bottom button (SNES Y and B), in game only; the menu is unchanged. New `snesButtonLayout` flag taken from the spare bits, so saved settings stay valid and read as NES. New `GamePadState::snesFaceButtons`, set by the drivers of the pads with a diamond of four (DS4, DualSense, PS Classic, XInput, Manta SNES).
