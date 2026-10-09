@@ -76,9 +76,7 @@ namespace FrensSettings
         O2EM = 6,
         SNES = 7,
         TI99 = 8,
-        OUTRUN = 9,
-        PHOENIX = 10,
-        MOONCRESTA = 11
+        ARCADE = 9 // every arcade game (OutRun, Phoenix, Moon Cresta, Galagino, ...): one settings file, /settings_ARC.dat
     } emulators;
     static emulators emulatorType = NES;
     void initSettings(emulators emu) ;

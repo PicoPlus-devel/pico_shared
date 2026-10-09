@@ -1,5 +1,10 @@
 # Release notes
 
+## 9/10/2026
+
+- **One emulator type for all arcade games** (`ARCADE`). It replaces `OUTRUN`, `PHOENIX` and `MOONCRESTA`, so a new arcade game no longer needs a change here. The arcade games share one settings file, `/settings_ARC.dat`, and one `currentDir`, `/roms/arcade`; each game reads its ROM set from its own folder. Settings saved in `/settings_ORUN.dat`, `/settings_PHNX.dat` or `/settings_MCRS.dat` are no longer read.
+- **`Frens::setPreVideoInitTask()`**: a task `initAll()` runs once the SD card is mounted and the settings are loaded, before the display, audio and USB start. picoGalagino copies its ROM sets to flash there on boards without PSRAM.
+
 ## 6/10/2026
 
 - **Moon Cresta** added as an emulator type (`MOONCRESTA`, settings file `/settings_MCRS.dat`).

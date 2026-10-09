@@ -49,6 +49,8 @@
 #ifndef DVIAUDIOFREQ
 #define DVIAUDIOFREQ 44100
 #endif
+// see setPreVideoInitTask()
+static void (*preVideoInitTask)(void) = nullptr;
 #if !HSTX
 std::unique_ptr<dvi::DVI> dvi_;
 util::ExclusiveProc exclProc_;
@@ -1867,6 +1869,11 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
     /// @param swapbytes Swap bytes when loading Roms (Master System, Game Gear)
     /// @param useFrameBuffer Use framebuffer when possible
     /// @return
+    void setPreVideoInitTask(void (*task)(void))
+    {
+        preVideoInitTask = task;
+    }
+
     bool initAll(char *selectedRom, uint32_t CPUFreqKHz, int marginTop, int marginBottom, size_t audiobufferSize, bool swapbytes, bool useFrameBuffer)
 
     {
@@ -1942,6 +1949,8 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
                 printf("Rebooted by menu, flashing rom.\n");
                 flashrom(selectedRom, byteSwapped);
             }
+            if (preVideoInitTask)
+                preVideoInitTask();
         }
 #if !HSTX && FRAMEBUFFERISPOSSIBLE
         usingFramebuffer = useFrameBuffer;

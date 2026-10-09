@@ -198,6 +198,12 @@ namespace Frens
     void initDVandAudio(int marginTop, int marginBottom);
     void initDVandAudio(int marginTop, int marginBottom, size_t audioBufferSize);
     bool initAll(char *selectedRom, uint32_t CPUFreqKHz, int marginTop, int marginBottom, size_t audiobufferSize = 256, bool swapbytes = false, bool useFrameBuffer = false);
+    // Optional task initAll() runs once when the SD card is mounted and the
+    // settings are loaded, before the display, audio and USB start: the place to
+    // write flash without the display running (the same point where a rom is
+    // flashed on boards without PSRAM). Set it before initAll(); nullptr clears it.
+    // picoGalagino copies its ROM sets to flash here.
+    void setPreVideoInitTask(void (*task)(void));
     void blinkLed(bool on);
     void resetWifi();
     void printbin16(int16_t v);

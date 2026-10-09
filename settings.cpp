@@ -7,7 +7,8 @@ struct settings settings;
 namespace FrensSettings
 {
     #define SETTINGSFILE "/settings_%s.dat" // File to store settings
-    static const char *emulatorstrings[12] = { "NES", "SMS", "GB", "MD", "MUL", "PCE", "O2E", "SNES", "TI99", "ORUN", "PHNX", "MCRS" };
+    // At most 5 characters: the type string is also kept in char emu[6] (recentgames.h).
+    static const char *emulatorstrings[10] = { "NES", "SMS", "GB", "MD", "MUL", "PCE", "O2E", "SNES", "TI99", "ARC" };
     static char settingsFileName[21] = {};
     static emulators emulatorTypeForSettings = emulators::MULTI;
     char *getSettingsFileName()
@@ -176,7 +177,16 @@ namespace FrensSettings
         settings.flags.snesButtonLayout = 0; // default: NES layout, the buttons games have always used
         settings.flags.tateMode = 0; // default: vertical games turned upright for a normal monitor
         settings.flags.reserved = 0;  // clear spare bits
-        snprintf(settings.currentDir, sizeof(settings.currentDir), "/roms/%s", emulatorstrings[static_cast<int>(emulatorType)]);
+        if (emulatorType == emulators::ARCADE)
+        {
+            // All arcade games share one settings file, so they share one currentDir as well.
+            // Each game reads its ROM set from its own folder below /roms/arcade.
+            snprintf(settings.currentDir, sizeof(settings.currentDir), "/roms/arcade");
+        }
+        else
+        {
+            snprintf(settings.currentDir, sizeof(settings.currentDir), "/roms/%s", emulatorstrings[static_cast<int>(emulatorType)]);
+        }
     }
 
     void savesettings()
