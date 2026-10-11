@@ -24,6 +24,20 @@ void hstx_setScanLines(int enable);
 void hstx_setAspectRatio87(int enable);
 void hstx_setScanLineType(int type);
 uint16_t *hstx_getlineFromFramebuffer(int scanline);
+
+#if HSTX_CUSTOM_FRAME_SIZE
+// Framebuffer layout. Only built with HSTX_CUSTOM_FRAME_SIZE=1 in the app's
+// CMake: it costs about 1.4 KB of SRAM, which the other apps keep.
+// The default, 320x240, shows each row on two lines (and honours
+// hstx_setAspectRatio87). Any other size: rows of `width` pixels (stride =
+// width; even, at most 320) are pixel-doubled and centred between black
+// borders, and the `height` rows (at most 480) are scaled to the 480 lines,
+// blending a line that straddles two rows (see hstx_scale.h). For a picture
+// taller than 240 rows, such as an upright arcade screen. Returns false, and
+// leaves the layout as it was, if width * height * 2 bytes do not fit the
+// framebuffer. hstx_getlineFromFramebuffer() follows the new stride.
+bool hstx_setFrameSize(int width, int height);
+#endif
 void hstx_init(bool dviOnly);
 void video_output_core1_run(void);
 void hstx_push_audio_sample(const int left, const int right);

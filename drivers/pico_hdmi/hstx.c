@@ -1,5 +1,8 @@
 #if PICO_RP2350
 #include "hstx.h"
+#if HSTX_CUSTOM_FRAME_SIZE
+#include "hstx_scale.h"
+#endif
 #include "pwm_audio.h"
 #include "pico/multicore.h" 
 #include "stdio.h"
@@ -18,6 +21,14 @@ static volatile int scanlineType = 0;
 static volatile int scanlineMode = 0;
 #define HRes (MODE_H_ACTIVE_PIXELS / 2) // 320
 #define VRes (MODE_V_ACTIVE_LINES / 2)  // 240
+#if HSTX_CUSTOM_FRAME_SIZE
+// The framebuffer layout, width | height << 16; see hstx_setFrameSize(). One
+// word, so the scanline callback on core 1 never sees half a change.
+#define FRAME_SIZE(w, h) ((uint32_t)(w) | ((uint32_t)(h) << 16))
+static volatile uint32_t frameSize = FRAME_SIZE(HRes, VRes);
+// A blended line of a custom-size framebuffer (in SRAM, like the callback)
+static uint32_t blendLine[HRes / 2];
+#endif
 void hstx_waitForVSync(void)
 {
     // Wait until the frame counter advances, indicating a new vsync edge.
@@ -103,20 +114,103 @@ void hstx_setScanLineType(int type)
 
 uint16_t *__not_in_flash_func(hstx_getlineFromFramebuffer)(int scanline)
 {
+#if HSTX_CUSTOM_FRAME_SIZE
+    return (uint16_t *)(WriteBuf + (scanline * (frameSize & 0xFFFF) * 2));
+#else
     return (uint16_t *)(WriteBuf + (scanline * HRes * 2));
+#endif
 }
+
+#if HSTX_CUSTOM_FRAME_SIZE
+bool hstx_setFrameSize(int width, int height)
+{
+    if (width <= 0 || height <= 0 || (width & 1) || width > HRes || height > MODE_V_ACTIVE_LINES ||
+        (uint32_t)width * (uint32_t)height * 2 > sizeof(FRAMEBUFFER))
+        return false;
+    frameSize = FRAME_SIZE(width, height);
+    return true;
+}
+#endif
 void __not_in_flash_func(hstx_vsync_callbackfunc)(void)
 {
    HSTX_vblank = true;
 }
+
+#if HSTX_CUSTOM_FRAME_SIZE
+/// 1:1 pixel doubling of `pairs` source pixel pairs into dst, with the
+/// scanline effects described at scanline_callbackfunc() (the same loops as
+/// its 320x240 path). Returns the end of the output.
+static inline __attribute__((always_inline)) uint32_t *double_pixels(uint32_t *dst, const uint32_t *src,
+                                                                     uint32_t pairs, int do_scanline, int stype)
+{
+    const uint32_t DARKEN_MASK = 0x7BDE7BDEu;
+    const uint16_t DM = 0x7BDEu;
+    if (stype == 1) {
+        for (uint32_t i = 0; i < pairs; i++) {
+            uint32_t pair = src[i];
+            if (do_scanline) pair = (pair & DARKEN_MASK) >> 1;
+            uint32_t px0 = pair & 0xFFFFu;
+            uint32_t px1 = pair >> 16;
+            // normal pixel in low half, darkened copy in high half
+            *dst++ = px0 | (((px0 & DM) >> 1) << 16);
+            *dst++ = px1 | (((px1 & DM) >> 1) << 16);
+        }
+    } else if (do_scanline) {
+        for (uint32_t i = 0; i < pairs; i++) {
+            uint32_t pair = (src[i] & DARKEN_MASK) >> 1;
+            uint32_t px0 = pair & 0xFFFFu;
+            uint32_t px1 = pair >> 16;
+            *dst++ = px0 | (px0 << 16);
+            *dst++ = px1 | (px1 << 16);
+        }
+    } else {
+        for (uint32_t i = 0; i < pairs; i++) {
+            uint32_t pair = src[i];
+            uint32_t px0 = pair & 0xFFFFu;
+            uint32_t px1 = pair >> 16;
+            *dst++ = px0 | (px0 << 16);
+            *dst++ = px1 | (px1 << 16);
+        }
+    }
+    return dst;
+}
+
+/// One output line of a w x h framebuffer (stride w) other than 320x240: the
+/// rows are scaled to the 480 lines as described in hstx_scale.h, and each
+/// pixel is doubled between black borders of (640 - 2w) / 2 pixels. Scanlines
+/// darken the odd output lines, as in the 320x240 layout.
+static void __not_in_flash_func(scale_line)(int load_line, uint32_t w, uint32_t h, uint32_t *buff,
+                                            int do_scanline, int stype)
+{
+    uint32_t q;
+    const uint32_t row = hstx_scale_row(load_line, h, MODE_V_ACTIVE_LINES, &q);
+    const uint32_t pairs = w / 2;
+    const uint32_t *src = (const uint32_t *)&DisplayBuf[row * w * 2];
+    if (q)
+    {
+        hstx_scale_blend(blendLine, src, src + pairs, pairs, q);
+        src = blendLine;
+    }
+
+    // Borders in words. Volatile stores, so GCC cannot turn the loops into a
+    // call to flash-resident memset (see the 8:7 path below).
+    const uint32_t border = (HRes - w) / 2;
+    volatile uint32_t *bp = buff;
+    for (uint32_t i = 0; i < border; i++)
+        bp[i] = 0;
+    bp = double_pixels(buff + border, src, pairs, do_scanline, stype);
+    for (uint32_t i = 0; i < border; i++)
+        bp[i] = 0;
+}
+#endif
 
 /// Per-scanline callback invoked by the HSTX video output on core 1.
 /// Converts one row of the 320x240 RGB555 framebuffer into a 640-pixel
 /// output scanline in `buff`, applying vertical line-doubling, optional
 /// scanline darkening, and either 1:1 or 8:7 horizontal scaling.
 ///
-/// Framebuffer layout : 320 x 240 pixels, 16 bpp (RGB555), row stride =
-///                      MODE_H_ACTIVE_PIXELS bytes (640).
+/// Framebuffer layout : 320 x 240 pixels (the default), 16 bpp (RGB555),
+///                      row stride = MODE_H_ACTIVE_PIXELS bytes (640).
 /// Output             : 640 x 480, each framebuffer row used twice
 ///                      (load_line >> 1 maps two output lines to one row).
 ///
@@ -159,6 +253,9 @@ void __not_in_flash_func(hstx_vsync_callbackfunc)(void)
 ///   Each source pixel is written twice (low and high half of a uint32_t).
 ///   320 source pixels -> 640 output pixels, 160 loop iterations (reading
 ///   two source pixels per uint32_t).
+///
+/// Any other framebuffer size (hstx_setFrameSize, HSTX_CUSTOM_FRAME_SIZE)
+/// goes to scale_line().
 void __not_in_flash_func(scanline_callbackfunc)(uint32_t v_scanline, uint32_t active_line, uint32_t *buff)
 {
     int load_line = v_scanline - (MODE_V_TOTAL_LINES - MODE_V_ACTIVE_LINES);
@@ -167,6 +264,16 @@ void __not_in_flash_func(scanline_callbackfunc)(uint32_t v_scanline, uint32_t ac
 
     HSTX_vblank = false;
     __dmb();
+
+#if HSTX_CUSTOM_FRAME_SIZE
+    const uint32_t size = frameSize;
+    if (size != FRAME_SIZE(HRes, VRes))
+    {
+        scale_line(load_line, size & 0xFFFF, size >> 16, buff, (load_line & 1) && enableScanLines,
+                   enableScanLines ? scanlineType : 0);
+        return;
+    }
+#endif
 
     int Line_dup = load_line >> 1;
     const uint32_t DARKEN_MASK = 0x7BDE7BDEu;
