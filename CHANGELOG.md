@@ -1,5 +1,9 @@
 # Release notes
 
+## 11/10/2026
+
+- **Framebuffers taller than 240 rows on HSTX** (`hstx_setFrameSize()`). The rows are scaled to the 480 lines of the display, and a line that falls between two rows shows a mix of both, so the upright picture of a vertical arcade game (256 or 288 rows) needs no rows left out. Opt-in with `HSTX_CUSTOM_FRAME_SIZE=1` in the app's CMake; apps that do not set it are unchanged. Used by picoGalagino, picoMoonCresta and picoPhoenix.
+
 ## 9/10/2026
 
 - **One emulator type for all arcade games** (`ARCADE`). It replaces `OUTRUN`, `PHOENIX` and `MOONCRESTA`, so a new arcade game no longer needs a change here. The arcade games share one settings file, `/settings_ARC.dat`, and one `currentDir`, `/roms/arcade`; each game reads its ROM set from its own folder. Settings saved in `/settings_ORUN.dat`, `/settings_PHNX.dat` or `/settings_MCRS.dat` are no longer read.
