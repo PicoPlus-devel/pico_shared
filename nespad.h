@@ -2,6 +2,14 @@
 
 #include "hardware/pio.h"
 
+// SNES Mouse support, opt-in for the whole build (-DNESPAD_SNES_MOUSE=1). The
+// mouse sends 32 bits per latch where a pad sends 16, so with it on every read
+// clocks 32 bits (~390 uS instead of ~220 uS). Off by default: emulators without
+// a use for the mouse keep the shorter read.
+#ifndef NESPAD_SNES_MOUSE
+#define NESPAD_SNES_MOUSE 0
+#endif
+
 //extern uint8_t nespad_state;
 // Legacy 8-bit view (bit0=A, 1=B, 2=Select, 3=Start, 4=Up, 5=Down, 6=Left,
 // 7=Right for a NES pad; for a SNES pad the same bits carry B,Y,Select,
@@ -14,22 +22,40 @@ extern uint8_t nespad_states[2];
 extern uint16_t nespad_states_ext[2];
 // Raw 16-clock read per port, inverted so 1 = pressed, before NES/SNES
 // masking: bits 0-11 as above, bits 12-15 the trailing ID nibble (all ones
-// for a NES pad, all zeros for a SNES pad and for an empty port). Exposed for
-// diagnostics (Settings > Controller Test).
+// for a NES pad, all zeros for a SNES pad and for an empty port, 8 for a SNES
+// Mouse). Exposed for diagnostics (Settings > Controller Test).
 extern uint16_t nespad_raw_ext[2];
 // Which pad the port is talking to. Needed to name buttons: bit0 is A on a
 // NES pad but B on a SNES pad. UNKNOWN means the wire cannot tell yet - an
 // empty port, an 8-bit SNES->NES adapter that leaves the data line high after
 // 8 clocks, and an idle SNES pad that does not pull it low after its 16 bits
-// (official ones do) all read as all-zeros.
+// (official ones do) all read as all-zeros. MOUSE is only reported by
+// NESPAD_SNES_MOUSE builds; a mouse is not a pad and leaves nespad_states[]
+// and nespad_states_ext[] at 0, see nespad_mouse[].
 enum
 {
     NESPAD_TYPE_UNKNOWN = 0,
     NESPAD_TYPE_NES,
     NESPAD_TYPE_SNES,
+    NESPAD_TYPE_MOUSE,
 };
 extern uint8_t nespad_padtype[2];
+// SNES Mouse on a port (nespad_padtype[] == NESPAD_TYPE_MOUSE). Same contract
+// as io::MouseState: dx/dy accumulate the motion of every read in mouse counts
+// (+x right, +y down) and the consumer zeroes them after use. buttons: bit0 =
+// left, bit1 = right. The driver keeps the mouse at its lowest sensitivity,
+// where one count is one step of the original ~50 counts/inch sensor.
+typedef struct
+{
+    uint8_t buttons;
+    int32_t dx;
+    int32_t dy;
+} nespad_mouse_state;
+extern nespad_mouse_state nespad_mouse[2];
 extern bool nespad_begin(uint8_t padnum, uint32_t cpu_khz, uint8_t clkPin, uint8_t dataPin,
                          uint8_t latPin, PIO _pio);
+// Start and finish may be split, e.g. start at frame start and finish when the
+// result is needed. Start does nothing while a read is pending, finish does
+// nothing (the previous result stays) when none is.
 extern void nespad_read_start(void);
 extern void nespad_read_finish(void);

@@ -161,6 +161,7 @@ Use one or two original SNES controllers instead of NES controllers.
 
 - On controller port 2, pin 5 (D2) is connected to GPIO27 and pin 6 (IOBit) to GPIO28. Pins 5 and 6 of controller port 1 are not connected.
 - The NES Zapper cannot be used, because the board has no NES controller ports.
+- An original SNES Mouse can be used in controller port 1 with emulators that support it ([pico-snesPlus](https://github.com/PicoPlus-devel/pico-snesPlus#snes-mouse)). The mouse uses only the power, clock, latch and data pins, which port 1 provides.
 - The 3D-printed case for v2.6 is made for NES controller ports and does not fit this board. There is no case for v2.8 yet.
 
 ## Pin assignment of the v2.x boards

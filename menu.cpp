@@ -1362,15 +1362,16 @@ static bool showVideoClockFixWarning()
 // True when there is a controller that keeps working with the built-in USB
 // port off: a Wii Classic controller that answered on I2C, a NES pad (its ID
 // bits give it away even when idle), or a GPIO port that has sent a button
-// press - the only way to tell an idle SNES pad from an empty port.
+// press - the only way to tell an idle SNES pad from an empty port. A SNES
+// Mouse does not count: it cannot work the menu.
 static bool nonUsbControllerFound()
 {
     bool found = gpioPadPressed;
 #if NES_PIN_CLK != -1
-    found |= nespad_padtype[0] != NESPAD_TYPE_UNKNOWN;
+    found |= nespad_padtype[0] == NESPAD_TYPE_NES || nespad_padtype[0] == NESPAD_TYPE_SNES;
 #endif
 #if NES_PIN_CLK_1 != -1
-    found |= nespad_padtype[1] != NESPAD_TYPE_UNKNOWN;
+    found |= nespad_padtype[1] == NESPAD_TYPE_NES || nespad_padtype[1] == NESPAD_TYPE_SNES;
 #endif
 #if WII_PIN_SDA >= 0 and WII_PIN_SCL >= 0
     found |= wiipad_is_connected();
@@ -1533,6 +1534,8 @@ static const char *ctPadTypeName(uint8_t type)
         return "NES pad, 8 buttons";
     case NESPAD_TYPE_SNES:
         return "SNES pad, 12 buttons";
+    case NESPAD_TYPE_MOUSE:
+        return "SNES Mouse";
     default:
         return "NES or SNES pad";
     }
@@ -1568,6 +1571,9 @@ static void showControllerTestScreen()
     uint16_t cur[CT_SRC_COUNT] = {0};
     uint16_t prev[CT_SRC_COUNT] = {0};
     bool seen[CT_SRC_COUNT] = {false};
+#if NESPAD_SNES_MOUSE && NES_PIN_CLK != -1
+    int32_t mousePos[2][2] = {}; // running sum of each GPIO mouse's motion, x then y
+#endif
     int active = -1;
     int holdFrames = 0;
     char line[MAX_SCREEN_COLS + 1];
@@ -1661,10 +1667,16 @@ static void showControllerTestScreen()
         putText(1, 11, "Sources:", settings.fgcolor, settings.bgcolor);
         int row = 12;
 #if NES_PIN_CLK != -1
-        ctDrawSourceRow(row++, CT_SRC_GPIO1, active, seen[CT_SRC_GPIO1] ? "input seen" : "no input");
+        ctDrawSourceRow(row++, CT_SRC_GPIO1, active,
+                        nespad_padtype[0] == NESPAD_TYPE_MOUSE ? ctPadTypeName(NESPAD_TYPE_MOUSE)
+                        : seen[CT_SRC_GPIO1]                   ? "input seen"
+                                                               : "no input");
 #endif
 #if NES_PIN_CLK_1 != -1
-        ctDrawSourceRow(row++, CT_SRC_GPIO2, active, seen[CT_SRC_GPIO2] ? "input seen" : "no input");
+        ctDrawSourceRow(row++, CT_SRC_GPIO2, active,
+                        nespad_padtype[1] == NESPAD_TYPE_MOUSE ? ctPadTypeName(NESPAD_TYPE_MOUSE)
+                        : seen[CT_SRC_GPIO2]                   ? "input seen"
+                                                               : "no input");
 #endif
         ctDrawSourceRow(row++, CT_SRC_USB1, active, ctUsbStatus(0));
         ctDrawSourceRow(row++, CT_SRC_USB2, active, ctUsbStatus(1));
@@ -1681,6 +1693,27 @@ static void showControllerTestScreen()
                      nespad_raw_ext[active - CT_SRC_GPIO1]);
             putText(1, 18, line, settings.fgcolor, settings.bgcolor);
         }
+#if NESPAD_SNES_MOUSE && NES_PIN_CLK != -1
+        // A SNES Mouse is not a pad, so it never becomes the tested source.
+        // Show its buttons and where its motion has added up to instead:
+        // moving right and down counts up.
+        for (int i = 0; i < 2; i++)
+        {
+            if (nespad_padtype[i] != NESPAD_TYPE_MOUSE)
+            {
+                mousePos[i][0] = mousePos[i][1] = 0;
+                continue;
+            }
+            mousePos[i][0] += nespad_mouse[i].dx;
+            mousePos[i][1] += nespad_mouse[i].dy;
+            nespad_mouse[i].dx = nespad_mouse[i].dy = 0;
+            snprintf(line, sizeof(line), "GPIO%d mouse: %c %c X:%+05d Y:%+05d", i + 1,
+                     (nespad_mouse[i].buttons & 1) ? 'L' : '-', (nespad_mouse[i].buttons & 2) ? 'R' : '-',
+                     (int)mousePos[i][0], (int)mousePos[i][1]);
+            line[SCREEN_COLS - 1] = '\0'; // drawn at col 1; putText does not clip at end of row
+            putText(1, 20 + i, line, settings.fgcolor, settings.bgcolor);
+        }
+#endif
 
         const char *hint = "Hold SELECT+UP 2 sec to exit";
         putText(centerColClamped(strlen(hint)), 26, hint, settings.fgcolor, settings.bgcolor);
