@@ -9,8 +9,13 @@
 #   - Set the PICO_PIO_USB_PATH environment variable to the Pico-PIO-USB library location if PIO USB is needed.
 #
 # Notes:
-#   - The latest master branch of TinyUSB is required for PIO USB support and for Adafruit Metro RP2350.
+#   - Builds with pico-sdk 2.2.0 and the TinyUSB it ships (0.18.0). TinyUSB master of 2026
+#     rewrote the driver for the RP2350's native USB port, with which devices behind a hub
+#     were often lost or panicked the firmware ("buf_ctrl ... already available",
+#     "Data Seq Error").
 #   - The latest branch of https://github.com/sekigon-gonnoc/Pico-PIO-USB is required for PIO USB support.
+#   - PIO_USB_VBUSEN_PIN: GPIO switching the USB host's 5V on, for boards that have one
+#     (FrensHelpers.cpp pio_usb_board_init, as FRENS_PIO_USB_VBUSEN_PIN); -1: none.
 #   - PIO USB is only supported on boards with sufficient memory (e.g., RP2350).
 #
 # check if $ENV{PICO_SDK_PATH} is set and points to a valid directory
@@ -216,13 +221,12 @@ elseif ( HW_CONFIG EQUAL 5 )
     set(PICO_AUDIO_I2S_PIO 1 CACHE STRING "Select the PIO for I2S audio output")
     set(PICO_AUDIO_I2S_CLOCK_PINS_SWAPPED 0 CACHE STRING "Set to 1 if the I2S clock pins are swapped")
     set(PICO_AUDIO_I2S_RESET_PIN 7 CACHE STRING "Select the GPIO pin for I2S reset")
-    set(BOARD "adafruit_metro_rp2350")         # found in $PICO__SDK_PATH/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_metro_rp2350/board.h
-    set(PICO_BOARD "adafruit_metro_rp2350")    # found in $PICO__SDK_PATH/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_metro_rp2350/adafruit_metro_rp2350.h
+    set(PICO_BOARD "adafruit_metro_rp2350")    # pico_shared/boards/adafruit_metro_rp2350.h (PIO USB D+ 32)
     set(ENABLE_PIO_USB 1 CACHE BOOL "Enable PIO USB support")
     set(PIO_USB_USE_PIO 2 CACHE BOOL "Select the PIO used for PIO-USB")
     set(PIO_DP_PLUS_PIN -1 CACHE STRING "PIO USB DP pin.")
-    set(NEEDS_LATEST_TINYUSB_SDK 1 CACHE BOOL "Set to 1 if the latest TinyUSB SDK is needed for this board")
-    # HSTX pins for Adafruit Metro RP2350 
+    set(PIO_USB_VBUSEN_PIN 29 CACHE STRING "PIO USB host 5V enable pin")
+    # HSTX pins for Adafruit Metro RP2350
     if ( USE_HSTX EQUAL 1 AND NOT DEFINED GPIOHSTXD0 AND FORCE_DVI EQUAL 0)
         set(GPIOHSTXD0 18 CACHE STRING "HSTX D0+ pin")
         set(GPIOHSTXD1 16 CACHE STRING "HSTX D1+ pin")  
@@ -331,12 +335,11 @@ elseif ( HW_CONFIG EQUAL 8 )
     set(PICO_AUDIO_I2S_RESET_PIN 22 CACHE STRING "Select the GPIO pin for I2S reset")
     set(PICO_AUDIO_I2S_INTERRUPT_PIN 23 CACHE STRING "Select the GPIO pin for I2S interrupt")
     set(PICO_AUDIO_I2S_INTERRUPT_IS_BUTTON 0 CACHE STRING "Set to 1 if the I2S interrupt pin is a button")
-    set(BOARD "adafruit_fruit_jam")         # found in $PICO__SDK_PATH/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_metro_rp2350/board.h
-    set(PICO_BOARD "adafruit_fruit_jam")    # found in $PICO__SDK_PATH/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_metro_rp2350/adafruit_metro_rp2350.h
+    set(PICO_BOARD "adafruit_fruit_jam")    # $PICO_SDK_PATH/src/boards/include/boards/adafruit_fruit_jam.h (PIO USB D+ 1)
     set(ENABLE_PIO_USB 1 CACHE BOOL "Enable PIO USB support")
     set(PIO_USB_USE_PIO 2 CACHE BOOL "Select the PIO used for PIO-USB")
     set(PIO_DP_PLUS_PIN -1 CACHE STRING "PIO USB DP pin.")
-    set(NEEDS_LATEST_TINYUSB_SDK 1 CACHE BOOL "Set to 1 if the latest TinyUSB SDK is needed for this board")
+    set(PIO_USB_VBUSEN_PIN 11 CACHE STRING "PIO USB host 5V enable pin")
     # HSTX pins for Adafruit Fruit Jam
     if ( USE_HSTX EQUAL 1 AND NOT DEFINED GPIOHSTXD0 AND FORCE_DVI EQUAL 0)
         set(GPIOHSTXD0 15 CACHE STRING "HSTX D0+ pin")
@@ -348,7 +351,7 @@ elseif ( HW_CONFIG EQUAL 8 )
    set(ENABLE_VU_METER 1 CACHE BOOL "Enable VU meter (fruitjam NeoPixel leds)")
    # Override default UART settings used for printf debugging on the Adafruit Fruit Jam board.
    # By default, the following UART configuration is set in:
-   #   $PICO_SDK_PATH/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_fruit_jam/adafruit_fruit_jam.h
+   #   $PICO_SDK_PATH/src/boards/include/boards/adafruit_fruit_jam.h
    #     PICO_DEFAULT_UART        1
    #     PICO_DEFAULT_UART_TX_PIN 8
    #     PICO_DEFAULT_UART_RX_PIN 9
@@ -522,7 +525,6 @@ elseif ( HW_CONFIG EQUAL 13 )
     set(PICO_AUDIO_I2S_RESET_PIN -1 CACHE STRING "Select the GPIO pin for I2S reset")
     set(PIO_USB_USE_PIO 2 CACHE BOOL "Select the PIO used for PIO-USB")
     set(PIO_DP_PLUS_PIN -1 CACHE STRING "PIO USB DP pin.")
-    set(NEEDS_LATEST_TINYUSB_SDK 1 CACHE BOOL "Set to 1 if the latest TinyUSB SDK is needed for this board")
     if ( USE_HSTX EQUAL 1 AND NOT DEFINED GPIOHSTXD0 AND FORCE_DVI EQUAL 0)  # HSTX pins for Murmulator M2
         set(GPIOHSTXCK 13 CACHE STRING "HSTX CK+ pin")
         set(GPIOHSTXD0 15 CACHE STRING "HSTX D0+ pin")
@@ -563,12 +565,9 @@ elseif ( HW_CONFIG EQUAL 14 )
     set(PICO_AUDIO_I2S_PIO 1 CACHE STRING "Select the PIO for I2S audio output")
     set(PICO_AUDIO_I2S_CLOCK_PINS_SWAPPED 0 CACHE STRING "Set to 1 if the I2S clock pins are swapped")
     set(PICO_AUDIO_I2S_RESET_PIN 26 CACHE STRING "Select the GPIO pin for I2S reset")
-    #set(BOARD "adafruit_metro_rp2350")         # found in $PICO__SDK_PATH/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_metro_rp2350/board.h
-    #set(PICO_BOARD "adafruit_metro_rp2350")    # found in $PICO__SDK_PATH/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_metro_rp2350/adafruit_metro_rp2350.h
     set(ENABLE_PIO_USB 1 CACHE BOOL "Enable PIO USB support")
     set(PIO_USB_USE_PIO 2 CACHE BOOL "Select the PIO used for PIO-USB")
     set(PIO_DP_PLUS_PIN 24 CACHE STRING "PIO USB DP pin.")
-    set(NEEDS_LATEST_TINYUSB_SDK 1 CACHE BOOL "Set to 1 if the latest TinyUSB SDK is needed for this board")
     # HSTX pins for Adafruit Metro RP2350 
     if ( USE_HSTX EQUAL 1 AND NOT DEFINED GPIOHSTXD0 AND FORCE_DVI EQUAL 0)
         set(GPIOHSTXD0 18 CACHE STRING "HSTX D0+ pin")
@@ -703,29 +702,16 @@ if (NOT DEFINED GPIOHSTXD0)
     set(GPIOHSTXINVERTED 0 CACHE STRING "Set to 1 if HSTX pins are inverted: D- = D+ - 1, not inverted (default): D- = D+ + 1")
 endif()
 
-if (NOT DEFINED ENABLE_PIO_USB ) 
+if (NOT DEFINED ENABLE_PIO_USB )
     set(ENABLE_PIO_USB 0 CACHE BOOL "Enable PIO USB support")
 endif()
-# Latest TinyUSB SDK is needed for Adafruit Metro RP2350 or when PIO USB is enabled
+# The USB host's 5V switch, for FrensHelpers.cpp. Not TinyUSB's PICO_DEFAULT_PIO_USB_VBUSEN_PIN:
+# TinyUSB 0.18.0's generic bsp board.h defaults that to GPIO 22 on every board.
+if (NOT DEFINED PIO_USB_VBUSEN_PIN)
+    set(PIO_USB_VBUSEN_PIN -1 CACHE STRING "PIO USB host 5V enable pin")
+endif()
 if (ENABLE_PIO_USB EQUAL 1)
-    set(NEEDS_LATEST_TINYUSB_SDK 1 CACHE BOOL "Set to 1 if the latest TinyUSB SDK is needed for this board")
-endif()
-# If the board is not Adafruit Metro RP2350 and PIO USB is not enabled, set NEEDS_LATEST_TINYUSB_SDK to 0
-if (NOT DEFINED NEEDS_LATEST_TINYUSB_SDK)
-    set(NEEDS_LATEST_TINYUSB_SDK 0 CACHE BOOL "Set to 1 if the latest TinyUSB SDK is needed for this board")
-endif()
-
-if (NEEDS_LATEST_TINYUSB_SDK EQUAL 1)
-    # ensure the file ${PICO_SDK_PATH}/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_metro_rp2350/adafruit_metro_rp2350.h exists
-    # This to check whether the latest master branch of TinyUsb is used.
-    # This is needed for supporting the Adafruit Metro RP2350 or when PIO USB is enabled.
-    if (NOT EXISTS ${PICO_SDK_PATH}/lib/tinyusb/hw/bsp/rp2040/boards/adafruit_metro_rp2350/adafruit_metro_rp2350.h)
-        message(FATAL_ERROR [[
-Please pull the latest master branch of TinyUsb in ${PICO_SDK_PATH}/lib/tinyusb/
-This is needed for supporting the Adafruit Metro RP2350 or when PIO USB is enabled.               
-               ]]
-               )
-    endif()
+    add_compile_definitions(FRENS_PIO_USB_VBUSEN_PIN=${PIO_USB_VBUSEN_PIN})
 endif()
 # Default PSRAM chip select pin. (RP2350 only)
 # The emulator will try to detect if PSRAM is present. If so it will use it for loading roms.

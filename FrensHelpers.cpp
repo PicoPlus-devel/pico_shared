@@ -18,7 +18,8 @@
 #include "FrensHelpers.h"
 #if CFG_TUH_RPI_PIO_USB && PICO_RP2350
 #include "bsp/board_api.h"
-#include "board.h"
+// No TinyUSB bsp "board.h": the PIO USB D+ pin comes from the board header or
+// PIO_DP_PLUS_PIN, the 5V switch from PIO_USB_VBUSEN_PIN (BoardConfigs.cmake).
 #include "pio_usb.h"
 #endif
 #include "tusb.h"
@@ -1765,11 +1766,14 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
     {
 #if PICO_RP2350
 #if (CFG_TUH_ENABLED && CFG_TUH_RPI_PIO_USB) || (CFG_TUD_ENABLED && CFG_TUD_RPI_PIO_USB)
-        // power on the PIO USB VBUSEN pin if needed.
-#ifdef PICO_DEFAULT_PIO_USB_VBUSEN_PIN
-        gpio_init(PICO_DEFAULT_PIO_USB_VBUSEN_PIN);
-        gpio_set_dir(PICO_DEFAULT_PIO_USB_VBUSEN_PIN, GPIO_OUT);
-        gpio_put(PICO_DEFAULT_PIO_USB_VBUSEN_PIN, PICO_DEFAULT_PIO_USB_VBUSEN_STATE);
+        // power on the PIO USB VBUSEN pin if needed. FRENS_PIO_USB_VBUSEN_PIN comes from
+        // BoardConfigs.cmake (PIO_USB_VBUSEN_PIN, -1: no switch), not from TinyUSB's
+        // PICO_DEFAULT_PIO_USB_VBUSEN_PIN, which TinyUSB 0.18.0's generic bsp board.h sets
+        // to GPIO 22 on boards that have no such switch.
+#if defined(FRENS_PIO_USB_VBUSEN_PIN) && FRENS_PIO_USB_VBUSEN_PIN >= 0
+        gpio_init(FRENS_PIO_USB_VBUSEN_PIN);
+        gpio_set_dir(FRENS_PIO_USB_VBUSEN_PIN, GPIO_OUT);
+        gpio_put(FRENS_PIO_USB_VBUSEN_PIN, 1);
 #endif
 
         // rp2040 use pico-pio-usb for host tuh_configure() can be used to passed pio configuration to the host stack
