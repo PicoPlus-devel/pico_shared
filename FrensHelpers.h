@@ -244,6 +244,10 @@ namespace Frens
     void *f_realloc(void *pMem, const size_t newSize);
     uint GetAvailableMemory();
     void dumpHeapStats(const char *tag);
+    // Claims all heap RAM once so malloc never needs sbrk again (see FrensHelpers.cpp).
+    // initAll() does it on boards without PSRAM; an emulator that keeps its own blocks
+    // in SRAM next to PSRAM can call it after initAll().
+    void claimHeap();
     int GetUnUsedDMAChan(int startChannel);
     char *get_tag_text(const char *xml, const char *tag, char *buffer, size_t bufsize);
     void waitForVSync();

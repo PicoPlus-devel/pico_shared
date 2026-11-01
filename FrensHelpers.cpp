@@ -1922,7 +1922,7 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
     // Only done without PSRAM: with it, f_malloc does not touch SRAM, and some
     // emulators (SNES) balance their own SRAM-first/PSRAM-fallback buffers against
     // the current behaviour.
-    static void claimHeap()
+    void claimHeap()
     {
         mallopt(M_TRIM_THRESHOLD, INT_MAX);
         // sbrk requests are rounded up to 4KB pages, so ask for a little less than

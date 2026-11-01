@@ -8,7 +8,7 @@ namespace FrensSettings
 {
     #define SETTINGSFILE "/settings_%s.dat" // File to store settings
     // At most 5 characters: the type string is also kept in char emu[6] (recentgames.h).
-    static const char *emulatorstrings[10] = { "NES", "SMS", "GB", "MD", "MUL", "PCE", "O2E", "SNES", "TI99", "ARC" };
+    static const char *emulatorstrings[11] = { "NES", "SMS", "GB", "MD", "MUL", "PCE", "O2E", "SNES", "TI99", "ARC", "C64" };
     static char settingsFileName[21] = {};
     static emulators emulatorTypeForSettings = emulators::MULTI;
     char *getSettingsFileName()

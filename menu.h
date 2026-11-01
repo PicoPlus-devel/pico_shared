@@ -94,6 +94,12 @@ struct MenuCassetteHooks
     int  (*commit)(int index, int mode, const char *name);  // name only for record modes
     void (*rewind)();
     void (*refresh)();                          // rescan the tape folder
+
+    // Optional, for machines other than the TI (null: the TI's wording). Appended, so a
+    // nine-member initializer leaves them out.
+    const char *record_label;                   // one record entry, mode 3 (the machine's own
+                                                // format): "Record (TAP)"; null: WAV and CAS
+    const char *folder;                         // where the tapes are, for "No tapes found in"
 };
 void menuSetCassetteHooks(const MenuCassetteHooks *hooks);
 
@@ -119,6 +125,12 @@ struct MenuDiskHooks
     void (*default_name)(char *buf, size_t n);  // pre-fills the name field
     int  (*name_exists)(const char *name);      // drives the overwrite confirm
     int  (*create)(const char *name);           // formats it, rescans, returns its index or -1
+
+    // Optional, for machines other than the TI (null / 0: the TI's wording). Appended,
+    // so a nine-member initializer leaves them out.
+    const char *(*drive_label)(int drive);      // row label and list title: "Drive 8"; null: "DSK1".."DSKn"
+    const char *folder;                         // where the images are, for "No disk images found in"
+    int name_max;                               // longest name create() takes; 0: DISK_LABEL_MAX - 1
 };
 void menuSetDiskHooks(const MenuDiskHooks *hooks);
 
@@ -137,6 +149,31 @@ struct MenuPaletteList
     const char *const *descriptions; // shown below the options while it is highlighted
 };
 void menuSetPaletteList(const MenuPaletteList *list);
+
+// Optional: extensions of the files an emulator reads from the SD card itself, such as
+// disk and tape images, separated by spaces (".d64 .tap"). The menu starts such a file
+// without loading it into flash or PSRAM first - and on a board without PSRAM without
+// the reboot that would program it into flash. Null (the default): every file is loaded.
+void menuSetStreamedExtensions(const char *extensions);
+
+// Optional settings of the emulator's own (the C64's fast disk load and joystick port,
+// say), listed in the settings menu after the shared ones, before Controller Test. Null
+// unless an emulator registers them. As with the shared settings the menu edits a copy:
+// set() is called for every option on SAVE only, CANCEL discards the changes and DEFAULT
+// selects default_choice. Keeping them is up to the emulator (a file of its own), so
+// struct settings - and every emulator's saved settings file - stay as they are.
+struct MenuEmulatorOption
+{
+    const char *label;               // row label
+    const char *description;         // help line, at most 40 characters
+    int count;                       // choices 0..count-1
+    const char *const *choice_names; // shown as the value; nullptr: OFF / ON (count 2)
+    int default_choice;              // what DEFAULT selects
+    int (*get)(void);                // the choice in effect
+    void (*set)(int choice);         // SAVE: the choice to keep
+};
+#define MENU_MAX_EMULATOR_OPTIONS 8
+void menuSetEmulatorOptions(const MenuEmulatorOption *options, int count);
 
 // Put a tape in the deck because the console just asked for one. Called from the
 // emulator's frame loop, not from the menu: SAVE CS1 / OLD CS1 name no file, so the
