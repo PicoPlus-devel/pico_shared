@@ -453,6 +453,21 @@ void RomSelect_PadState(DWORD *pdwPad1, bool ignorepushed = false)
             (combinedButtons & io::GamePadState::Button::Y ? Y : 0) |
             0;
 
+    // A USB keyboard: Enter selects (A: opens a folder, starts a game, chooses an option)
+    // and Esc goes back (B), whatever abSwapped makes of its Z and X. Here rather than in
+    // hid_app.cpp's keyboard pad, so the two keys press no buttons in a game.
+    const io::KeyboardState &kb = io::getCurrentKeyboardState();
+    if (kb.connected)
+    {
+        for (int k = 0; k < 6; k++)
+        {
+            if (kb.keycode[k] == HID_KEY_ENTER || kb.keycode[k] == HID_KEY_KEYPAD_ENTER)
+                v |= A;
+            else if (kb.keycode[k] == HID_KEY_ESCAPE)
+                v |= B;
+        }
+    }
+
 #if NES_PIN_CLK != -1
     v |= nespadMenuBits(nespad_states_ext[0], nespad_padtype[0]);
 #endif
