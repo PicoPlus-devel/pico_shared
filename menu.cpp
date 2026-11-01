@@ -55,6 +55,27 @@ void menuSetDiskHooks(const MenuDiskHooks *hooks) { s_diskHooks = hooks; }
 static const MenuPaletteList *s_paletteList = nullptr;
 void menuSetPaletteList(const MenuPaletteList *list) { s_paletteList = list; }
 
+// The emulator's own settings (menu.h). In the settings menu they are the rows
+// MOPT_COUNT + k, after the shared ones.
+static const MenuEmulatorOption *s_emuOptions = nullptr;
+static int s_emuOptionCount = 0;
+void menuSetEmulatorOptions(const MenuEmulatorOption *options, int count)
+{
+    s_emuOptions = options;
+    s_emuOptionCount = options ? std::min(count, MENU_MAX_EMULATOR_OPTIONS) : 0;
+}
+
+// Its value as shown: the choice's name, or OFF / ON for a two-way option without names
+static const char *emuOptionValue(int k, int choice)
+{
+    const MenuEmulatorOption &o = s_emuOptions[k];
+    if (choice < 0 || choice >= o.count)
+        return "";
+    if (o.choice_names)
+        return o.choice_names[choice];
+    return choice ? "ON" : "OFF";
+}
+
 // Which drive the Disk row points at. Unlike the FDS and cassette choices this is a
 // cursor rather than a pending value - LEFT/RIGHT moves it between DSK1..DSKn and A
 // opens that drive's image list - so there is nothing to commit and nothing to reset.
@@ -2620,10 +2641,44 @@ static bool writeRomInfoFile(const char *dir, const char *name)
 // via ROMINFOFILE plus a reboot into flashrom(). dir has no trailing slash,
 // name is the bare file name. Returns true when the caller should leave the
 // browser loop.
+// Extensions the emulator reads from the card itself (menuSetStreamedExtensions)
+static const char *s_streamedExtensions = nullptr;
+void menuSetStreamedExtensions(const char *extensions) { s_streamedExtensions = extensions; }
+
+static bool isStreamed(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    if (!s_streamedExtensions || !dot)
+        return false;
+    size_t n = strlen(dot);
+    for (const char *p = s_streamedExtensions; *p;)
+    {
+        while (*p == ' ')
+            p++;
+        const char *end = p;
+        while (*end && *end != ' ')
+            end++;
+        if ((size_t)(end - p) == n && strncasecmp(p, dot, n) == 0)
+            return true;
+        p = end;
+    }
+    return false;
+}
+
 static bool startRom(char *dir, char *name, char *rompath)
 {
     errorInSavingRom = false;
     skipRebootAfterMenu = false;
+    if (isStreamed(name))
+    {
+        // The emulator opens it from the card: nothing to load, no reboot into flashrom()
+        FSIZE_t size = 0;
+        uint32_t crc = GetCRCOfRomFile(dir, name, rompath, size);
+        snprintf(rompath, FF_MAX_LFN, "%s/%s", dir, name);
+        Frens::Recent::add(rompath, FrensSettings::getEmulatorTypeString(), crc, (uint32_t)size);
+        skipRebootAfterMenu = true;
+        return true;
+    }
     if (Frens::isPsramEnabled())
     {
         ErrorMessage[0] = 0;
@@ -3618,22 +3673,32 @@ __attribute__((noinline)) static void cassetteMenuOverlay()
     int n = s_cassetteHooks->get_num_tapes ? s_cassetteHooks->get_num_tapes() : 0;
     if (n > MENU_PICK_MAX_ITEMS - 4) n = MENU_PICK_MAX_ITEMS - 4;
 
+    // <no tape>, the record entries and Rewind, then the tapes: the actions stay at the
+    // top, however long the list of tapes is
     const char *items[MENU_PICK_MAX_ITEMS];
     int count = 0;
     items[count++] = "<no tape>";
-    for (int i = 0; i < n; i++) items[count++] = s_cassetteHooks->get_tape_name(i);
-
-    int recWav = count; items[count++] = "Record (WAV)";
-    int recCas = count; items[count++] = "Record (CAS)";
+    int recWav = -1, recCas = -1;
+    if (s_cassetteHooks->record_label)
+    {
+        recCas = count; items[count++] = s_cassetteHooks->record_label;
+    }
+    else
+    {
+        recWav = count; items[count++] = "Record (WAV)";
+        recCas = count; items[count++] = "Record (CAS)";
+    }
     int rewind = -1;
     if (cassetteIsPlaying()) { rewind = count; items[count++] = "Rewind"; }
+    const int firstTape = count;
+    for (int i = 0; i < n; i++) items[count++] = s_cassetteHooks->get_tape_name(i);
 
     // Open on whatever is in the deck now, so the common case is one press of A.
     int sel = 0;
     if (cassetteIsPlaying() && s_cassetteHooks->get_selected)
     {
         int live = s_cassetteHooks->get_selected();
-        if (live >= 0 && live < n) sel = live + 1;
+        if (live >= 0 && live < n) sel = live + firstTape;
     }
 
     int choice = menuPickFromList("Cassette:", items, count, sel);
@@ -3672,7 +3737,7 @@ __attribute__((noinline)) static void cassetteMenuOverlay()
     // what BASIC's CHECK TAPE verify pass needs after a save: switch from Record to Play
     // and the tape is rewound.
     if (s_cassetteHooks->commit &&
-        s_cassetteHooks->commit(choice - 1, choice == 0 ? CAS_MODE_EMPTY : CAS_MODE_PLAY,
+        s_cassetteHooks->commit(choice == 0 ? -1 : choice - firstTape, choice == 0 ? CAS_MODE_EMPTY : CAS_MODE_PLAY,
                                 nullptr) != 0)
     {
         showMessageBox("Could not read that tape.", CRED);
@@ -3693,29 +3758,34 @@ __attribute__((noinline)) static void diskMenuOverlay(int drive)
 
     if (n <= 0 && !(cur && cur[0]) && !s_diskHooks->create)
     {
-        showMessageBox("No disk images found in", CWHITE, "/saves/ti99/disks");
+        showMessageBox("No disk images found in", CWHITE, s_diskHooks->folder ? s_diskHooks->folder : "/saves/ti99/disks");
         return;
     }
     if (n > MENU_PICK_MAX_ITEMS - 2) n = MENU_PICK_MAX_ITEMS - 2;
 
+    // <no disk>, Create blank disk, then the images: the two actions stay at the top,
+    // however long the list of images is
     const char *items[MENU_PICK_MAX_ITEMS];
     int count = 0;
     items[count++] = "<no disk>";
-    for (int i = 0; i < n; i++) items[count++] = s_diskHooks->get_image_name(i);
-
     int createEntry = -1;
     if (s_diskHooks->create) { createEntry = count; items[count++] = "Create blank disk"; }
+    const int firstImage = count;
+    for (int i = 0; i < n; i++) items[count++] = s_diskHooks->get_image_name(i);
 
     // Open on the image already in this drive, when it is one of the listed ones.
     int sel = 0;
     if (cur && cur[0])
     {
-        for (int i = 1; i < count; i++)
+        for (int i = firstImage; i < count; i++)
             if (strcasecmp(items[i], cur) == 0) { sel = i; break; }
     }
 
     char title[MAX_SCREEN_COLS];
-    snprintf(title, sizeof(title), "Mount into DSK%d:", drive + 1);
+    if (s_diskHooks->drive_label)
+        snprintf(title, sizeof(title), "Mount into %s:", s_diskHooks->drive_label(drive));
+    else
+        snprintf(title, sizeof(title), "Mount into DSK%d:", drive + 1);
 
     int choice = menuPickFromList(title, items, count, sel);
     if (choice < 0) return;
@@ -3725,13 +3795,15 @@ __attribute__((noinline)) static void diskMenuOverlay(int drive)
         // A blank disk has no name until someone gives it one, so this is the moment to
         // ask - and the name goes on both the file and the TI volume header, so a
         // catalogue of it reads back the same name the menu lists.
-        char label[DISK_LABEL_MAX] = {0};
-        if (s_diskHooks->default_name) s_diskHooks->default_name(label, sizeof(label));
+        char label[24] = {0};
+        size_t labelSize = s_diskHooks->name_max > 0 && s_diskHooks->name_max < (int)sizeof(label)
+                               ? s_diskHooks->name_max + 1 : DISK_LABEL_MAX;
+        if (s_diskHooks->default_name) s_diskHooks->default_name(label, labelSize);
 
         bool go;
         if (io::getCurrentKeyboardState().connected)
         {
-            go = showTextEntry("Name the new disk:", label, sizeof(label));
+            go = showTextEntry("Name the new disk:", label, labelSize);
         }
         else
         {
@@ -3768,7 +3840,8 @@ __attribute__((noinline)) static void diskMenuOverlay(int drive)
 
     // disk_mount() reports a failure by printing onto the emulated screen, which nobody
     // would see until the menu closes, so the result is checked and shown here instead.
-    if (s_diskHooks->mount && s_diskHooks->mount(drive, choice - 1) != 0)
+    int image = choice == 0 ? -1 : choice - firstImage;    // <no disk>: eject
+    if (s_diskHooks->mount && s_diskHooks->mount(drive, image) != 0)
         showMessageBox("Could not open that disk.", CRED);
 }
 
@@ -3788,7 +3861,7 @@ static bool cassettePickTape()
     int n = s_cassetteHooks->get_num_tapes ? s_cassetteHooks->get_num_tapes() : 0;
     if (n <= 0)
     {
-        showMessageBox("No tapes found in", CWHITE, "/saves/ti99/tapes");
+        showMessageBox("No tapes found in", CWHITE, s_cassetteHooks->folder ? s_cassetteHooks->folder : "/saves/ti99/tapes");
         return false;
     }
     if (n > MENU_PICK_MAX_ITEMS) n = MENU_PICK_MAX_ITEMS;
@@ -3934,12 +4007,14 @@ bool menuCassettePrompt(int wantRecord)
         if (io::getCurrentKeyboardState().connected)
             go = showTextEntry("Label this tape:", label, sizeof(label));
 
-        if (go && s_cassetteHooks->name_exists && s_cassetteHooks->name_exists(label, CAS_MODE_REC_WAV))
+        // (one record entry: the machine's own format, else the TI's WAV)
+        int recMode = s_cassetteHooks->record_label ? CAS_MODE_REC_CAS : CAS_MODE_REC_WAV;
+        if (go && s_cassetteHooks->name_exists && s_cassetteHooks->name_exists(label, recMode))
             go = showDialogYesNo("Tape exists. Overwrite?");
 
         if (go)
         {
-            ok = (s_cassetteHooks->commit(-1, CAS_MODE_REC_WAV, label) == 0);
+            ok = (s_cassetteHooks->commit(-1, recMode, label) == 0);
             if (!ok) showMessageBox("Could not start recording.", CWHITE);
         }
     }
@@ -4064,7 +4139,13 @@ int showSettingsMenu(bool calledFromGame)
     // visibleCount+1: SAVE
     // visibleCount+2: CANCEL
     // visibleCount+3: DEFAULT
-    int visibleIndices[MOPT_COUNT];
+    int visibleIndices[MOPT_COUNT + MENU_MAX_EMULATOR_OPTIONS];
+    // The emulator's own settings, edited here and handed back on SAVE
+    int emuChoice[MENU_MAX_EMULATOR_OPTIONS];
+    for (int k = 0; k < s_emuOptionCount; ++k)
+    {
+        emuChoice[k] = s_emuOptions[k].get ? s_emuOptions[k].get() : s_emuOptions[k].default_choice;
+    }
     int visibleCount = 0;
     // FDS disk swap goes first so it's auto-selected when an FDS game
     // is running and the BIOS prompts the user to flip the disk.
@@ -4152,6 +4233,11 @@ int showSettingsMenu(bool calledFromGame)
         {
             visibleIndices[visibleCount++] = MOPT_NES_PALETTE;
         }
+    }
+    // The emulator's own settings, after the shared ones
+    for (int k = 0; k < s_emuOptionCount; ++k)
+    {
+        visibleIndices[visibleCount++] = MOPT_COUNT + k;
     }
     // Fixed tail of the list: Controller test, Enter BOOTSEL mode, USB drive
     // mode. Their order cannot come from the loop above because the enum in
@@ -4287,7 +4373,13 @@ int showSettingsMenu(bool calledFromGame)
             int optIndex = visibleIndices[vi];
             const char *label = "";
             const char *value = "";
-            switch (optIndex)
+            if (optIndex >= MOPT_COUNT)
+            {
+                int k = optIndex - MOPT_COUNT;
+                label = s_emuOptions[k].label;
+                value = emuOptionValue(k, emuChoice[k]);
+            }
+            else switch (optIndex)
             {
             case MenuSettingsIndex::MOPT_EXIT_GAME:
             {
@@ -4705,7 +4797,10 @@ int showSettingsMenu(bool calledFromGame)
                     if (drives <= 0) drives = 1;
                     if (s_diskDrive < 0 || s_diskDrive >= drives) s_diskDrive = 0;
 
-                    snprintf(dskLabel, sizeof(dskLabel), "Disk DSK%d", s_diskDrive + 1);
+                    if (s_diskHooks->drive_label)
+                        snprintf(dskLabel, sizeof(dskLabel), "%s", s_diskHooks->drive_label(s_diskDrive));
+                    else
+                        snprintf(dskLabel, sizeof(dskLabel), "Disk DSK%d", s_diskDrive + 1);
                     label = dskLabel;
 
                     const char *m = s_diskHooks->get_mounted_name
@@ -4845,7 +4940,18 @@ int showSettingsMenu(bool calledFromGame)
         // display helptext
         if (!onActionRow && visibleCount > 0)
         {
-            putText(0, helpRowScreen, g_settings_descriptions[visibleIndices[selectedOptionIndex]], CBLACK, CWHITE);
+            int helpOpt = visibleIndices[selectedOptionIndex];
+            if (helpOpt >= MOPT_COUNT)
+            {
+                char help[41];
+                const char *d = s_emuOptions[helpOpt - MOPT_COUNT].description;
+                snprintf(help, sizeof(help), "%-40s", d ? d : "");
+                putText(0, helpRowScreen, help, CBLACK, CWHITE);
+            }
+            else
+            {
+                putText(0, helpRowScreen, g_settings_descriptions[helpOpt], CBLACK, CWHITE);
+            }
         }
         else
         {
@@ -5022,7 +5128,13 @@ int showSettingsMenu(bool calledFromGame)
                        Frens::rebootToBootloader(); // does not return
                     }
                     bool right = pad & RIGHT;
-                    switch (optIndex)
+                    if (optIndex >= MOPT_COUNT)
+                    {
+                        int k = optIndex - MOPT_COUNT, n = s_emuOptions[k].count;
+                        if (n > 0)
+                            emuChoice[k] = right ? (emuChoice[k] + 1) % n : (emuChoice[k] + n - 1) % n;
+                    }
+                    else switch (optIndex)
                     {
                     case MOPT_EXIT_GAME:
                     {
@@ -5434,6 +5546,10 @@ int showSettingsMenu(bool calledFromGame)
                         break;
                     case 2: // DEFAULT
                         FrensSettings::resetsettings(&working);
+                        for (int k = 0; k < s_emuOptionCount; ++k)
+                        {
+                            emuChoice[k] = s_emuOptions[k].default_choice;
+                        }
                         break;
                     }
                 }
@@ -5481,6 +5597,11 @@ int showSettingsMenu(bool calledFromGame)
         strcpy(working.currentDir, settings.currentDir);
         settings = working;
         FrensSettings::savesettings();
+        for (int k = 0; k < s_emuOptionCount; ++k)
+        {
+            if (s_emuOptions[k].set)
+                s_emuOptions[k].set(emuChoice[k]);
+        }
         if (rval == 0) rval = 1;
 
         // If the overclock toggle disagrees with the live clock, rewrite

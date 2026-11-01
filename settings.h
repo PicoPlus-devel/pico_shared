@@ -76,7 +76,8 @@ namespace FrensSettings
         O2EM = 6,
         SNES = 7,
         TI99 = 8,
-        ARCADE = 9 // every arcade game (OutRun, Phoenix, Moon Cresta, Galagino, ...): one settings file, /settings_ARC.dat
+        ARCADE = 9, // every arcade game (OutRun, Phoenix, Moon Cresta, Galagino, ...): one settings file, /settings_ARC.dat
+        C64 = 10    // Commodore 64 (and C128): pico-c64
     } emulators;
     static emulators emulatorType = NES;
     void initSettings(emulators emu) ;
