@@ -13,6 +13,9 @@
 #define FLASHPARAM_OPTIONS_MAGIC 0x3154504Fu // "OPT1"
 // Option bits. Bit 0 was the Video Clock Fix (HSTX from PLL_USB), retired when
 // 384 MHz replaced 378 MHz. Boards may still have it set: do not reuse it.
+// Testing aid: run as a board without PSRAM, whether it has any or not. Read once
+// at boot (see initPsram()), set from the settings menu, which reboots to apply it.
+#define FLASHPARAM_OPT_DISABLE_PSRAM (1u << 1)
 
 
 

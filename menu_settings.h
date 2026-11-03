@@ -48,6 +48,7 @@ enum MenuSettingsIndex {
     MOPT_NES_PALETTE,     // NES: color palette. Listed after Scanline Type, see menu.cpp
     MOPT_BUTTON_LAYOUT,   // NES: NES B/A on SNES Y/B (SNES) or SNES B/A (NES). Listed before Rapid Fire on A, see menu.cpp
     MOPT_TATE_MODE,       // Vertical arcade games: upright picture or tate for a turned monitor. Listed under Scanline Type, see menu.cpp
+    MOPT_DISABLE_PSRAM,   // Testing aid: run as a board without PSRAM. Reboots to apply; 2 offers it in-game as well, see menu.cpp
     MOPT_COUNT
 };
 // Short description (max 40 chars) for each option. Use designated initializers
@@ -92,6 +93,7 @@ const char* const g_settings_descriptions[MOPT_COUNT] = {
     [MOPT_NES_PALETTE]               = "Colors used to draw the game",
     [MOPT_BUTTON_LAYOUT]             = "SNES: Y and B are NES B and A in game",
     [MOPT_TATE_MODE]                 = "Picture for a monitor turned on its side",
+    [MOPT_DISABLE_PSRAM]             = "Test: run without PSRAM (reboots)",
 };
 
 extern const int8_t *g_settings_visibility; // Visibility configuration for options menu

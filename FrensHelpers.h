@@ -224,6 +224,9 @@ namespace Frens
     void SetFrameBufferProcessScanLineFunction(ProcessScanLineFunction processScanLineFunction);
 #endif
     bool isPsramEnabled();
+    // True when the settings menu's "Disable PSRAM" is set (FLASHPARAM_OPT_DISABLE_PSRAM):
+    // isPsramEnabled() is then false on a board with PSRAM too.
+    bool isPsramDisabledBySetting();
     void *flashromtoPsram(char *selectdRom, bool swapbytes, uint32_t &crc, int crcOffset);
     void PaceFrames60fps(bool init, bool usePicoDVIvsyncWait = false);
     // Optional task run repeatedly while PaceFrames60fps is waiting out slack

@@ -1352,6 +1352,23 @@ static bool showWarningDialog(const char *title, const char *const lines[], int 
     }
 }
 
+// Disable PSRAM (testing aid): lives in FlashParams only, see initPsram(). Saving
+// it reboots, so it follows the rule for Overclock: a visibility of 1 offers it in
+// the rom browser, 2 in-game as well. When set it is always offered, whatever the
+// visibility, because it could not be turned off again otherwise.
+static bool isPsramOptionOffered(bool calledFromGame)
+{
+#if PICO_RP2350 && PSRAM_CS_PIN && HW_CONFIG != 7 && HW_CONFIG != 16
+    if (Frens::isPsramDisabledBySetting())
+    {
+        return true;
+    }
+    return Frens::isPsramEnabled() && g_settings_visibility[MOPT_DISABLE_PSRAM] >= (calledFromGame ? 2 : 1);
+#else
+    return false;
+#endif
+}
+
 // Shown before enabling an overclock that boots the CPU above the safe default
 // clock, with the target clock and voltage.
 static bool showOverclockWarning(uint32_t targetMHz, vreg_voltage targetVoltage)
@@ -4129,6 +4146,8 @@ int showSettingsMenu(bool calledFromGame)
     }
     memcpy(workingDyn, &settings, sizeof(settings)); // byte-exact copy including padding for memcmp
     struct settings &working = *workingDyn; // keep existing code unchanged (reference alias)
+    const bool psramOffInFlash = Frens::isPsramDisabledBySetting();
+    bool workingPsramOff = psramOffInFlash; // not in settings: it lives in FlashParams
     // Ensure current screenMode is valid; if not, pick first available
 #if !HSTX
     {
@@ -4199,6 +4218,7 @@ int showSettingsMenu(bool calledFromGame)
         if (i == MOPT_NES_PALETTE) continue;   // listed with the display options, below
         if (i == MOPT_BUTTON_LAYOUT) continue;  // listed before Rapid Fire on A, below
         if (i == MOPT_TATE_MODE) continue;      // listed under Scanline Type, below
+        if (i == MOPT_DISABLE_PSRAM) continue;  // listed after the emulator's settings, below
         // The three action entries that close the list are appended after this
         // loop in a fixed order, so skip them here.
         if (i == MOPT_CONTROLLER_TEST) continue;
@@ -4253,6 +4273,10 @@ int showSettingsMenu(bool calledFromGame)
     for (int k = 0; k < s_emuOptionCount; ++k)
     {
         visibleIndices[visibleCount++] = MOPT_COUNT + k;
+    }
+    if (isPsramOptionOffered(calledFromGame))
+    {
+        visibleIndices[visibleCount++] = MOPT_DISABLE_PSRAM;
     }
     // Fixed tail of the list: Controller test, Enter BOOTSEL mode, USB drive
     // mode. Their order cannot come from the loop above because the enum in
@@ -4599,6 +4623,12 @@ int showSettingsMenu(bool calledFromGame)
             {
                 label = "Overclock";
                 value = working.flags.overclock ? "ON" : "OFF";
+                break;
+            }
+            case MenuSettingsIndex::MOPT_DISABLE_PSRAM:
+            {
+                label = "Disable PSRAM";
+                value = workingPsramOff ? "YES" : "NO";
                 break;
             }
             case MenuSettingsIndex::MOPT_FM_AUDIO:
@@ -5027,7 +5057,7 @@ int showSettingsMenu(bool calledFromGame)
     while (!exitMenu)
     {
         // Always redraw before reading pad state (requested behavior)
-        settingsChanged = (memcmp(&working, &settings, sizeof(settings)) != 0);
+        settingsChanged = (memcmp(&working, &settings, sizeof(settings)) != 0) || workingPsramOff != psramOffInFlash;
         redraw();
         DWORD pad;
         RomSelect_PadState(&pad);
@@ -5332,6 +5362,9 @@ int showSettingsMenu(bool calledFromGame)
                     case MOPT_OVERCLOCK:
                         working.flags.overclock = !working.flags.overclock;
                         break;
+                    case MOPT_DISABLE_PSRAM:
+                        workingPsramOff = !workingPsramOff;
+                        break;
                     case MOPT_FM_AUDIO:
                         working.flags.useFM = !working.flags.useFM;
                         break;
@@ -5561,6 +5594,7 @@ int showSettingsMenu(bool calledFromGame)
                         break;
                     case 2: // DEFAULT
                         FrensSettings::resetsettings(&working);
+                        workingPsramOff = false;
                         for (int k = 0; k < s_emuOptionCount; ++k)
                         {
                             emuChoice[k] = s_emuOptions[k].default_choice;
@@ -5619,18 +5653,21 @@ int showSettingsMenu(bool calledFromGame)
         }
         if (rval == 0) rval = 1;
 
-        // If the overclock toggle disagrees with the live clock, rewrite
-        // FlashParams and reboot. writeFlashParamsToFlash arms the watchdog
-        // and never returns.
+        // If the overclock toggle disagrees with the live clock, or Disable
+        // PSRAM was changed, rewrite FlashParams and reboot.
+        // writeFlashParamsToFlash arms the watchdog and never returns.
 #if HW_CONFIG != 7 && HW_CONFIG != 16
         const bool highClock = settings.flags.overclock || settings.flags.useFM;
         uint32_t liveKHz   = clock_get_hz(clk_sys) / 1000;
         uint32_t targetKHz = highClock ? Frens::getMaxFreqKHz() : Frens::getMinFreqKHz();
         vreg_voltage targetV = highClock ? Frens::getMaxVoltage() : Frens::getMinVoltage();
-        if (liveKHz != targetKHz)
+        const bool psramOffChanged = workingPsramOff != psramOffInFlash;
+        // One write for both, so a save that changes both loses neither.
+        const uint32_t options = psramOffChanged ? Frens::getFlashParamsOptions() ^ FLASHPARAM_OPT_DISABLE_PSRAM : Frens::getFlashParamsOptions();
+        if (liveKHz != targetKHz || psramOffChanged)
         {
-            showLoadingScreen(highClock ? "Enabling overclock" : "Disabling overclock", 60);
-            if (Frens::writeFlashParamsToFlash(targetKHz, targetV, Frens::getFlashParamsOptions()) == false)
+            showLoadingScreen(liveKHz != targetKHz ? (highClock ? "Enabling overclock" : "Disabling overclock") : (workingPsramOff ? "Disabling PSRAM" : "Enabling PSRAM"), 60);
+            if (Frens::writeFlashParamsToFlash(targetKHz, targetV, options) == false)
             {
                 printf("Failed to write FlashParams\n");
             }

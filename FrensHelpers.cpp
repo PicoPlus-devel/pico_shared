@@ -239,12 +239,28 @@ namespace Frens
         return psRamEnabled;
     }
 
+    bool isPsramDisabledBySetting()
+    {
+        // Not on HW_CONFIG 7 and 16: the settings menu cannot write FlashParams there,
+        // so it could not be turned off again.
+#if PICO_RP2350 && PSRAM_CS_PIN && HW_CONFIG != 7 && HW_CONFIG != 16
+        return (getFlashParamsOptions() & FLASHPARAM_OPT_DISABLE_PSRAM) != 0;
+#else
+        return false;
+#endif
+    }
+
     bool initPsram()
     {
         psRamEnabled = false;
         psramMemorySize = 0;
         // Initialize PSRAM if available
 #if PICO_RP2350 && PSRAM_CS_PIN
+        if (isPsramDisabledBySetting())
+        {
+            printf("PSRAM disabled in the settings menu. Games will be loaded into flash.\n");
+            return false;
+        }
         printf("GetInstance...\n");
         PicoPlusPsram &psram_ = PicoPlusPsram::getInstance();
         if (psram_.GetMemorySize() > 0)
