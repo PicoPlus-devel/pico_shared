@@ -5,7 +5,7 @@
 
 #define nespad_wrap_target 0
 
-// Both program variants clock NESPAD_READ_BITS bits. 18 so SNES controllers
+// The program clocks NESPAD_READ_BITS bits. 18 so SNES controllers
 // (which share the NES latch/clock/data protocol but shift out 16 bits:
 // B,Y,Select,Start,Up,Down,Left,Right,A,X,L,R + 4 ID bits) are read in full.
 // Plain NES controllers simply shift out low for bits 9-16;
@@ -18,9 +18,12 @@
 #else
 #define NESPAD_READ_BITS 18
 #endif
-// "set x, NESPAD_READ_BITS - 1  side 1": the bit counter of both variants.
+// "set x, NESPAD_READ_BITS - 1  side 1": the bit counter.
 #define NESPAD_SET_X (0xf020 | (NESPAD_READ_BITS - 1))
-#if HW_CONFIG == 12 || HW_CONFIG == 13 // Murmulator M1/M2 bothe controllers ahare latch and clock
+// SNES read timing: 12 uS latch, then 6 uS clock low / 6 uS high per bit. Data
+// is sampled 1 uS after the falling edge, well away from the rising edge where
+// the pad shifts, so it also reads correctly when several state machines share
+// one clock and latch pin (Murmulator M1/M2) and run slightly out of phase.
 static const uint16_t nespad_program_instructions[] = {
     //     .wrap_target
     // @javavi pull request
@@ -34,21 +37,7 @@ static const uint16_t nespad_program_instructions[] = {
     0x1043, //  6: jmp    x--, 3          side 1
     //     .wrap
   };
-#else // Original nespad code, used as long as the above code is not tested on WaveShare boards.
-static const uint16_t nespad_program_instructions[] = {
-    //     .wrap_target
-    0xd020, //  0: irq    wait 0          side 1
-    0xf101, //  1: set    pins, 1         side 1 [1]
-    NESPAD_SET_X, //  2: set    x, NESPAD_READ_BITS - 1   side 1
-    0xf000, //  3: set    pins, 0         side 1
-    0xf400, //  4: set    pins, 0         side 1 [4]
-    0xe100, //  5: set    pins, 0         side 0 [1]
-    0x5301, //  6: in     pins, 1         side 1 [3]
-    0x1044, //  7: jmp    x--, 4          side 1
-            //     .wrap
-};
-#endif
-// Derive program length from instruction array (works for both variants)
+// Derive program length from instruction array
 #define NESPAD_PROG_LEN (sizeof(nespad_program_instructions) / sizeof(nespad_program_instructions[0]))
 static const struct pio_program nespad_program = {
     .instructions = nespad_program_instructions,
@@ -159,8 +148,8 @@ bool nespad_begin(uint8_t padnum, uint32_t cpu_khz, uint8_t clkPin, uint8_t data
   return true;
 }
 
-// Initiate nespad read. Non-blocking; result will be available in ~220 uS
-// (~390 uS with NESPAD_SNES_MOUSE) via nespad_read_finish(). Does nothing
+// Initiate nespad read. Non-blocking; result will be available in ~230 uS
+// (~400 uS with NESPAD_SNES_MOUSE) via nespad_read_finish(). Does nothing
 // while a read is pending, so a second start cannot queue a second result in
 // the FIFO. Must first call nespad_begin() once to set up PIO.
 void nespad_read_start(void)
@@ -216,7 +205,7 @@ static void nespad_mouse_speed_pulse(int padnum)
 }
 #endif
 
-// Finish nespad read. Ideally should be called ~220 uS after
+// Finish nespad read. Ideally should be called ~230 uS after
 // nespad_read_start(), but can be sooner (will block until ready), or later
 // (will introduce latency). Does nothing when no read is pending. Sets
 // nespad_states[] (legacy 8-bit view, 1 = pressed: 0x01=A/B, 0x02=B/Y,
