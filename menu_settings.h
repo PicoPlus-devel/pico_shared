@@ -57,7 +57,7 @@ enum MenuSettingsIndex {
 const char* const g_settings_descriptions[MOPT_COUNT] = {
     [MOPT_EXIT_GAME]                = "Exit game and return to main menu",
     [MOPT_RESET_GAME]                = "Reset the currently running game",
-    [MOPT_REBOOT_TO_LOADER]          = "Return to emulator selection menu",
+    [MOPT_REBOOT_TO_LOADER]          = "Returns to boot loader",
     [MOPT_SAVE_RESTORE_STATE]        = "Save or load emulator state",
     [MOPT_SCREENMODE]                = "Screen scaling & scanline mode",
     [MOPT_SCANLINES]                 = "Toggle scanlines effect",
