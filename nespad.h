@@ -4,7 +4,7 @@
 
 // SNES Mouse support, opt-in for the whole build (-DNESPAD_SNES_MOUSE=1). The
 // mouse sends 32 bits per latch where a pad sends 16, so with it on every read
-// clocks 32 bits (~390 uS instead of ~220 uS). Off by default: emulators without
+// clocks 32 bits (~400 uS instead of ~235 uS). Off by default: emulators without
 // a use for the mouse keep the shorter read.
 #ifndef NESPAD_SNES_MOUSE
 #define NESPAD_SNES_MOUSE 0

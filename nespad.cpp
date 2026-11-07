@@ -20,21 +20,26 @@
 #endif
 // "set x, NESPAD_READ_BITS - 1  side 1": the bit counter.
 #define NESPAD_SET_X (0xf020 | (NESPAD_READ_BITS - 1))
-// SNES read timing: 12 uS latch, then 6 uS clock low / 6 uS high per bit. Data
-// is sampled 1 uS after the falling edge, well away from the rising edge where
-// the pad shifts, so it also reads correctly when several state machines share
-// one clock and latch pin (Murmulator M1/M2) and run slightly out of phase.
+// SNES read timing, as the console does it: 12 uS latch, clock held high for
+// 6 uS after the latch falls, then 6 uS clock low / 6 uS high per bit. The pad
+// shifts on the rising edge. Data is sampled 4 uS after the falling edge:
+// - 2 uS before the rising edge, so it also reads correctly when several state
+//   machines share one clock and latch pin (Murmulator M1/M2) and run up to
+//   1 uS out of phase (@javavi, pico-infonesPlus PR #167).
+// - 10 uS after the previous rising edge and after the latch falls. The SNES
+//   Mouse is a microcontroller that needs this time: with the first clock
+//   falling together with the latch and the data sampled 1 uS after the
+//   falling edge, its motion kept being reported after the mouse had stopped.
 static const uint16_t nespad_program_instructions[] = {
     //     .wrap_target
-    // @javavi pull request
-    // from https://github.com/fhoedemakers/pico-infonesPlus/pull/167
     0xD020, //  0: irq    wait 0          side 1
     0xFA01, //  1: set    pins, 1         side 1 [10]
     NESPAD_SET_X, //  2: set    x, NESPAD_READ_BITS - 1   side 1
-    0xE000, //  3: set    pins, 0         side 0
-    0x4401, //  4: in     pins, 1         side 0 [4]
-    0xF400, //  5: set    pins, 0         side 1 [4]
-    0x1043, //  6: jmp    x--, 3          side 1
+    0xF500, //  3: set    pins, 0         side 1 [5]
+            //  bitloop:
+    0xA342, //  4: nop                    side 0 [3]
+    0x4101, //  5: in     pins, 1         side 0 [1]
+    0x1544, //  6: jmp    x--, bitloop    side 1 [5]
     //     .wrap
   };
 // Derive program length from instruction array
@@ -148,7 +153,7 @@ bool nespad_begin(uint8_t padnum, uint32_t cpu_khz, uint8_t clkPin, uint8_t data
   return true;
 }
 
-// Initiate nespad read. Non-blocking; result will be available in ~230 uS
+// Initiate nespad read. Non-blocking; result will be available in ~235 uS
 // (~400 uS with NESPAD_SNES_MOUSE) via nespad_read_finish(). Does nothing
 // while a read is pending, so a second start cannot queue a second result in
 // the FIFO. Must first call nespad_begin() once to set up PIO.
@@ -205,7 +210,7 @@ static void nespad_mouse_speed_pulse(int padnum)
 }
 #endif
 
-// Finish nespad read. Ideally should be called ~230 uS after
+// Finish nespad read. Ideally should be called ~235 uS after
 // nespad_read_start(), but can be sooner (will block until ready), or later
 // (will introduce latency). Does nothing when no read is pending. Sets
 // nespad_states[] (legacy 8-bit view, 1 = pressed: 0x01=A/B, 0x02=B/Y,
