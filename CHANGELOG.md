@@ -3,6 +3,7 @@
 ## 8/11/2026
 
 - **Fix: random DVI signal losses on HSTX boards** in DVI mode. Some emulators were affected more than others.
+- **Fix: flickering lines in DVI mode** on HSTX boards: now and then a single line was shown shifted to the right for one frame.
 
 ## 7/11/2026
 
