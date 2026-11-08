@@ -4,6 +4,12 @@
 
 - **Fix: random DVI signal losses on HSTX boards** in DVI mode. Some emulators were affected more than others.
 
+## 7/11/2026
+
+- **NES/SNES pads on the GPIO ports**: every board now uses the Murmulator PIO program (pico-infonesPlus #167, by javavi), with the console's read timing.
+- **Fix: SNES Mouse** kept reporting motion after it had stopped.
+- **New board: Pico Computer 3** (HW_CONFIG 17, by javavi). RP2350B with HSTX video, I2S audio, 8 MB PSRAM, two NES ports and a Zapper on the I/O header. The serial console is UART1 on GPIO8/9.
+
 ## 2/11/2026
 
 - **Disable PSRAM**, a settings menu entry for testing the no-PSRAM path on a board that has PSRAM. It is stored in FlashParams, and saving a change reboots the board. Hidden unless an emulator opts in (`MOPT_DISABLE_PSRAM`: 1 in the rom browser, 2 in-game as well). Used by picoSalamander.
