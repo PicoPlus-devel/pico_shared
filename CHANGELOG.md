@@ -1,5 +1,9 @@
 # Release notes
 
+## 8/11/2026
+
+- **Fix: random DVI signal losses on HSTX boards** in DVI mode. Some emulators were affected more than others.
+
 ## 2/11/2026
 
 - **Disable PSRAM**, a settings menu entry for testing the no-PSRAM path on a board that has PSRAM. It is stored in FlashParams, and saving a change reboots the board. Hidden unless an emulator opts in (`MOPT_DISABLE_PSRAM`: 1 in the rom browser, 2 in-game as well). Used by picoSalamander.
