@@ -76,6 +76,9 @@ volatile uint32_t video_frame_count = 0;
 
 #if HSTX_DEBUG
 static volatile uint32_t irq_count = 0;
+// Pixel runs whose channel had already restarted before the IRQ reloaded it
+// (one shifted line each, see vactive_line_dvi).
+static volatile uint32_t late_pixel_reloads = 0;
 #endif
 
 // DVI mode: when true, disables all HDMI Data Islands (pure DVI output, no audio)
@@ -102,7 +105,9 @@ static bool dvi_mode = false; // Default to HDMI mode (full features with audio)
 // The resyncs themselves were not the sink's doing: no sink can make the
 // watchdogs fire. Real DVI's 9-word blank line left the DMA IRQ 0.7 us at the
 // end of each frame, and the data island stretched that (see
-// vblank_line_first_dvi, which now gives real DVI ~12 us).
+// vblank_line_first_dvi, which now gives real DVI ~12 us). The 9-word active
+// line had the same 0.7 us on every line, which showed as single lines
+// shifted to the right (see vactive_line_dvi, now ~5 us).
 //
 // 1 is kept for reference only -- do not reach for it. It is not DVI, so it
 // buys a sink nothing that Display Mode = HDMI does not already give: that
@@ -161,11 +166,38 @@ static uint32_t vblank_line_vsync_on[] = {HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_POR
                                           SYNC_V0_H1,
                                           HSTX_CMD_NOP};
 
-// Active video line for DVI mode (no Data Island, just sync + pixels)
+// Active video line for DVI mode (no Data Island, just sync + pixels), with
+// the back porch sent as three runs of 16. The output is the same as one run
+// of 48: the same control symbols, still plain DVI.
+//
+// Each active line is two DMA runs on alternating channels: this list, then
+// the 320 pixel words. When the pixel run of line N completes, the other
+// channel starts this list for line N+1, and the pixel channel is re-triggered
+// as soon as the list completes. The IRQ for the completed pixel run has to
+// point the pixel channel at the new line buffer before that (see
+// vblank_line_first_dvi for the same timing at the end of a frame). As a
+// 9-word list with one back-porch run, it completed ~17 pixel clocks (0.7 us)
+// after the pixel run. When the IRQ was later, the channel restarted with its
+// pixel settings from the end of the previous line buffer, sent ~3 stale words
+// before the IRQ moved its read address, and that line was shown ~6 pixels to
+// the right. The word count stays at 320, so the stream stays in phase; the
+// result was a single shifted line a few times per second, never a sync loss.
+//
+// Split like this, the list completes when its first back-porch command
+// leaves the FIFO, front porch plus hsync into the line. That gives the IRQ
+// ~128 pixel clocks (~5 us), more than HDMI mode's ~2.9 us, which never
+// showed the shifted lines. The 8 words still in the FIFO then cover the
+// 48-pixel back porch, so the pixel DMA has ~1.9 us to deliver its first word
+// before the TMDS run starts. The render IRQ that follows starts later by the
+// same amount as its deadline, so its budget is unchanged.
+#define BACK_PORCH_RUN (MODE_H_BACK_PORCH / 3)
+_Static_assert(MODE_H_BACK_PORCH % 3 == 0, "back porch must split evenly");
 static uint32_t vactive_line_dvi[] = {
     HSTX_CMD_RAW_REPEAT | MODE_H_FRONT_PORCH, SYNC_V1_H1, HSTX_CMD_NOP,
     HSTX_CMD_RAW_REPEAT | MODE_H_SYNC_WIDTH,  SYNC_V1_H0, HSTX_CMD_NOP,
-    HSTX_CMD_RAW_REPEAT | MODE_H_BACK_PORCH,  SYNC_V1_H1, HSTX_CMD_TMDS | MODE_H_ACTIVE_PIXELS};
+    HSTX_CMD_RAW_REPEAT | BACK_PORCH_RUN,     SYNC_V1_H1, HSTX_CMD_NOP,
+    HSTX_CMD_RAW_REPEAT | BACK_PORCH_RUN,     SYNC_V1_H1, HSTX_CMD_NOP,
+    HSTX_CMD_RAW_REPEAT | BACK_PORCH_RUN,     SYNC_V1_H1, HSTX_CMD_TMDS | MODE_H_ACTIVE_PIXELS};
 
 // First blank line after the active area in DVI mode: the same symbols as
 // vblank_line_vsync_off, with the 688-pixel run sent as four runs of 172.
@@ -570,6 +602,10 @@ static inline void __not_in_flash_func(video_output_handle_blanking)(dma_channel
 
 static inline void __not_in_flash_func(video_output_handle_active_data)(dma_channel_hw_t *ch)
 {
+#if HSTX_DEBUG
+    if (ch->al1_ctrl & DMA_CH0_CTRL_TRIG_BUSY_BITS)
+        late_pixel_reloads++;
+#endif
     ch->read_addr = (uintptr_t)line_buffer[line_buf_dma_idx];
     ch->transfer_count = (MODE_H_ACTIVE_PIXELS * sizeof(uint16_t)) / sizeof(uint32_t);
 }
@@ -877,6 +913,7 @@ void __not_in_flash_func(video_output_core1_run)(void)
     uint32_t rate_last_us = last_frame_us;
     uint32_t rate_last_frames = last_frame_count_seen;
     uint32_t rate_last_irqs = irq_count;
+    uint32_t rate_last_late = late_pixel_reloads;
 #endif
     while (1) {
         // ----------------------------------------------------------------
@@ -933,10 +970,13 @@ void __not_in_flash_func(video_output_core1_run)(void)
             uint32_t d_us = now - rate_last_us;
             uint32_t d_frames = current_count - rate_last_frames;
             uint32_t d_irqs = irq_count - rate_last_irqs;
-            printf("video rate: %lu frames/s, %lu irqs/s (dvi=%d) clk_sys=%lu clk_hstx=%lu csr=%08lx resync=%d di_lvl=%lu underrun=%lu (+%lu/s)\n",
+            uint32_t late = late_pixel_reloads;
+            printf("video rate: %lu frames/s, %lu irqs/s (dvi=%d) late_px=%lu (+%lu/s) clk_sys=%lu clk_hstx=%lu csr=%08lx resync=%d di_lvl=%lu underrun=%lu (+%lu/s)\n",
                    (unsigned long)((uint64_t)d_frames * 1000000u / d_us),
                    (unsigned long)((uint64_t)d_irqs * 1000000u / d_us),
                    dvi_mode ? 1 : 0,
+                   (unsigned long)late,
+                   (unsigned long)(late - rate_last_late),
                    (unsigned long)clock_get_hz(clk_sys),
                    (unsigned long)clock_get_hz(clk_hstx),
                    (unsigned long)hstx_ctrl_hw->csr,
@@ -962,6 +1002,7 @@ void __not_in_flash_func(video_output_core1_run)(void)
             rate_last_us = now;
             rate_last_frames = current_count;
             rate_last_irqs = irq_count;
+            rate_last_late = late;
         }
 #endif
 
