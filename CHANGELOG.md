@@ -1,5 +1,9 @@
 # Release notes
 
+## 12/11/2026
+
+- **New board: PCB for the Waveshare RP2350-PiZero** (HW_CONFIG 18, by szuping). HSTX video on the PCB's HDMI port (GPIO12-19; the PiZero's own HDMI port is not used), PCM5102 I2S audio, two NES/SNES ports on GPIO2-7, a Zapper on GPIO26/27, PIO USB, and a socket for an ESP32 running BlueRetro. bld.sh accepts -c 18 and implies RP2350 and PIO USB. The PCB design is not yet available.
+
 ## 8/11/2026
 
 - **Fix: random DVI signal losses on HSTX boards** in DVI mode. Some emulators were affected more than others.

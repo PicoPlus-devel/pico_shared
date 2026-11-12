@@ -730,6 +730,69 @@ elseif ( HW_CONFIG EQUAL 17 )
         set(GPIOHSTXINVERTED 1 CACHE STRING "Set to 1 if HSTX pins are inverted: D- = D+ - 1, not inverted (default): D- = D+ + 1")
     endif()
     set(PSRAM_CS_PIN 47 CACHE STRING "Select the GPIO pin for PSRAM chip select")
+elseif ( HW_CONFIG EQUAL 18 )
+    # --------------------------------------------------------------------
+	# PCB by Liu Szuping @szuping
+    # Liu Szuping's custom PCB for the WaveShare RP2350 PiZero board with HSTX and Blue Retro support.
+    # This PCB is designed for the WaveShare RP2350 PiZero board with custom pin configurations.
+    # Features:
+    #   - 2 NES controllers support
+    #   - 2 SNES controllers support
+    #   - PCM5102 Audio via audio jack
+    #   - HDMI port HSTX support
+    #   - Socket for ESP32 module
+    #   - NES zapper support. (pico-infonesPlus only)
+    # The ESP32 module is used for connecting bluetooth controllers with Blue Retro. - https://github.com/darthcloud/blueretro
+    # Configuration tool: https://darthcloud.github.io/BlueRetroWebCfg_Beta/
+    # Note:
+    #   - the built-in hdmi port of the PiZero is not used in this configuration.
+    #   - To use the physical NES/SNES ports, remove the ESP32 module.
+	# --------------------------------------------------------------------
+    set(PICO_BOARD "waveshare_rp2350_pizero" )
+	set(DVICONFIG "dviConfig_WaveShareRp2350" CACHE STRING
+    "Select a default pin configuration from common_dvi_pin_configs.h")
+    set(LED_GPIO_PIN "25" CACHE STRING "Select the GPIO pin for LED")  
+    set(SD_CS "43" CACHE STRING "Specify the Chip Select GPIO pin for the SD card")
+    set(SD_SCK "30" CACHE STRING "Specify de Clock GPIO pin for the SD card")
+    set(SD_MOSI "31" CACHE STRING "Select the Master Out Slave In GPIO pin for the SD card")
+    set(SD_MISO "40" CACHE STRING "Select the Master In Slave Out GPIO pin for the SD card")
+    set(SD_SPI "spi1" CACHE STRING "Select the SPI bus for SD card")
+    set(NES_CLK "2" CACHE STRING "Select the Clock GPIO pin for NES controller")
+    set(NES_DATA "4" CACHE STRING "Select the Data GPIO pin for NES controller")
+    set(NES_LAT "3" CACHE STRING "Select the Latch GPIO pin for NES controller")
+    set(NES_PIO "pio1" CACHE STRING "Select the PIO for NES controller")
+    set(NES_CLK_1 "5" CACHE STRING "Select the Clock GPIO pin for second NES controller")
+	set(NES_DATA_1 "7" CACHE STRING "Select the Data GPIO pin for second NES controller")
+	set(NES_LAT_1 "6" CACHE STRING "Select the Latch GPIO pin for second NES controller")
+    set(NES_PIO_1 "pio1" CACHE STRING "Select the PIO for second NES controller")
+    set(WII_SDA "-1" CACHE STRING "Select the SDA GPIO pin for Wii Classic controller")
+    set(WII_SCL "-1" CACHE STRING "Select the SCL GPIO pin for Wii Classic controller")
+    set(WIIPAD_I2C "i2c1" CACHE STRING "Select the I2C bus for Wii Classic controller")
+	set(UART_ENABLED 1 CACHE STRING "Enable UART output")
+   #set (PICO_DEFAULT_UART 1 CACHE STRING "Select the default UART for this board")
+   #set (PICO_DEFAULT_UART_TX_PIN 0 CACHE STRING "Select the GPIO pin for UART TX")
+   #set (PICO_DEFAULT_UART_RX_PIN 1 CACHE STRING "Select the GPIO pin for UART RX")
+ 
+    set(USE_I2S_AUDIO "PICO_AUDIO_I2S_DRIVER_PCM5000A" CACHE STRING "Enable I2S audio output")
+    set(PICO_AUDIO_I2S_DATA_PIN 9 CACHE STRING "Select the GPIO pin for I2S data")
+    set(PICO_AUDIO_I2S_CLOCK_PIN_BASE 10 CACHE STRING "Select the GPIO pin for I2S clock")
+    set(PICO_AUDIO_I2S_PIO 1 CACHE STRING "Select the PIO for I2S audio output")
+    set(PICO_AUDIO_I2S_CLOCK_PINS_SWAPPED 0 CACHE STRING "Set to 1 if the I2S clock pins are swapped")
+    set(PICO_AUDIO_I2S_RESET_PIN -1 CACHE STRING "Select the GPIO pin for I2S reset")
+
+    set(ENABLE_PIO_USB 1 CACHE BOOL "Enable PIO USB support")
+    set(PIO_USB_USE_PIO 2 CACHE BOOL "Select the PIO used for PIO-USB")
+    set(PIO_DP_PLUS_PIN 28 CACHE STRING "PIO USB DP pin.")
+  if ( USE_HSTX EQUAL 1 AND NOT DEFINED GPIOHSTXD0 AND FORCE_DVI EQUAL 0)  # HSTX pins for the HDMI port on the PCB
+        set(GPIOHSTXCK 13 CACHE STRING "HSTX CK+ pin")
+        set(GPIOHSTXD0 15 CACHE STRING "HSTX D0+ pin")
+        set(GPIOHSTXD1 17 CACHE STRING "HSTX D1+ pin")  
+        set(GPIOHSTXD2 19 CACHE STRING "HSTX D2+ pin")
+        set(GPIOHSTXINVERTED 1 CACHE STRING "Set to 1 if HSTX pins are inverted: D- = D+ - 1, not inverted (default): D- = D+ + 1")
+   endif()
+# NES Zapper, pico-infonesPlus only. Inert in the other emulators.
+    set(ZAPPER_D3 26 CACHE STRING "NES Zapper light-sensor GPIO (-1 = absent)")
+    set(ZAPPER_D4 27 CACHE STRING "NES Zapper trigger GPIO (-1 = absent)")
 endif ( )
 if ( NOT DEFINED FLASH_RESERVED_TOP )
     set(FLASH_RESERVED_TOP 0 CACHE STRING "Bytes at the end of flash that ROMs must not overwrite")
