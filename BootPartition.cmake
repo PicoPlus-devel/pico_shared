@@ -40,14 +40,43 @@ math(EXPR FRENS_APP_SIZE  "${FRENS_FLASH_TOTAL} - ${FRENS_BOOTLOADER_SIZE}" OUTP
 # ---------------------------------------------------------------------------
 # _frens_relink_flash(<target> <origin_hex> <length_hex>)
 #
-# Copy the SDK's default RP2350 memory map and rewrite only the FLASH(rx)
-# ORIGIN/LENGTH line, then point <target> at it. Adapted from the proven
-# rp2350-uf2-bootloader/cmake/patch_memmap.cmake. Keeps us compatible with SDK
-# updates (everything else in the script is untouched).
+# Move <target>'s FLASH region to ORIGIN/LENGTH; everything else in the SDK's
+# default RP2350 memory map stays as it is.
+#
+#   SDK >= 2.3.0: the SDK assembles its linker script from small include files
+#   and takes the FLASH region from pico_flash_region.ld. We supply our own copy
+#   of only that file, ahead of the SDK's in the linker search path.
+#   SDK <  2.3.0: copy the SDK's memmap_default.ld and rewrite its FLASH(rx)
+#   line. Adapted from rp2350-uf2-bootloader/cmake/patch_memmap.cmake.
 #
 # Must be called AFTER the target exists and AFTER pico_sdk_init().
 # ---------------------------------------------------------------------------
 function(_frens_relink_flash TARGET ORIGIN LENGTH)
+    # Override the SDK's compile-time flash-size assumption to match the actual
+    # chip. The board header (e.g. adafruit_fruit_jam.h) may set PICO_FLASH_SIZE_BYTES
+    # to a value smaller than the real flash (e.g. 8 MB on a 16 MB board), which
+    # makes hard_assert in flash_range_erase / flash_range_program panic when the
+    # bootloader or an emulator writes at higher offsets (e.g. near the top of a
+    # 16 MB partition). FRENS_FLASH_TOTAL is the single source of truth here.
+    target_compile_definitions(${TARGET} PRIVATE
+        PICO_FLASH_SIZE_BYTES=${FRENS_FLASH_TOTAL})
+
+    if(COMMAND pico_add_linker_script_override_path)
+        # A directory of its own: SDK 2.2.0 and older write a pico_flash_region.ld
+        # into the build root, and ld also searches the current directory.
+        # pico_override_flash_size() is not usable here: its template fixes the
+        # ORIGIN at 0x10000000, and it would redefine PICO_FLASH_SIZE_BYTES as
+        # the partition length.
+        set(_ld_dir "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}_frens_ld")
+        file(WRITE "${_ld_dir}/pico_flash_region.ld"
+             "FLASH(rx) : ORIGIN = ${ORIGIN}, LENGTH = ${LENGTH}\n")
+        pico_add_linker_script_override_path(${TARGET} "${_ld_dir}" FILES pico_flash_region.ld)
+        message(STATUS "BootPartition: ${TARGET} -> ORIGIN=${ORIGIN} LENGTH=${LENGTH} (${_ld_dir}/pico_flash_region.ld)")
+        # No PICOTOOL_EXTRA_UF2_ARGS: SDK >= 2.3.0 passes --platform itself,
+        # taken from PICO_PLATFORM, and picotool rejects a second --platform.
+        return()
+    endif()
+
     set(_candidates
         "${PICO_SDK_PATH}/src/rp2_common/pico_crt0/rp2350/memmap_default.ld"
         "${PICO_SDK_PATH}/src/rp2_common/pico_standard_link/memmap_default.ld"
@@ -94,14 +123,6 @@ function(_frens_relink_flash TARGET ORIGIN LENGTH)
     message(STATUS "BootPartition: ${TARGET} -> ORIGIN=${ORIGIN} LENGTH=${LENGTH} (from ${_src_ld})")
     pico_set_linker_script(${TARGET} "${_out_ld}")
 
-    # Override the SDK's compile-time flash-size assumption to match the actual
-    # chip. The board header (e.g. adafruit_fruit_jam.h) may set PICO_FLASH_SIZE_BYTES
-    # to a value smaller than the real flash (e.g. 8 MB on a 16 MB board), which
-    # makes hard_assert in flash_range_erase / flash_range_program panic when the
-    # bootloader or an emulator writes at higher offsets (e.g. near the top of a
-    # 16 MB partition). FRENS_FLASH_TOTAL is the single source of truth here.
-    target_compile_definitions(${TARGET} PRIVATE
-        PICO_FLASH_SIZE_BYTES=${FRENS_FLASH_TOTAL})
     # picotool >= 2.2.0 re-detects the chip from the ELF instead of trusting
     # --family, and assumes RP2040 for images that don't start at 0x10000000.
     # Our relinked images do, so tell it explicitly. Option doesn't exist

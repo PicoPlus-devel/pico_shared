@@ -1,5 +1,10 @@
 # Release notes
 
+## 17/11/2026
+
+- **Pico SDK 2.3 support for bootloader builds** (`BootPartition.cmake`, `bld.sh -b`). SDK 2.3 builds its linker script from include files, so the app partition is now set by overriding only `pico_flash_region.ld`, and no second `--platform` is passed to picotool. Builds with SDK 2.2.0 and older are unchanged.
+- **New SDK folder and RISC-V:** `bld.sh -r` and `buildAll.sh` expect the toolchain in `$PICO_SDK_PATH/toolchain/RISCV_RPI_2_0_0_2`. A freshly installed SDK does not have it; install or link it there again (`bld.sh -h` shows how).
+
 ## 12/11/2026
 
 - **New board: PCB for the Waveshare RP2350-PiZero** (HW_CONFIG 18, by szuping). HSTX video on the PCB's HDMI port (GPIO12-19; the PiZero's own HDMI port is not used), PCM5102 I2S audio, two NES/SNES ports on GPIO2-7, a Zapper on GPIO26/27, PIO USB, and a socket for an ESP32 running BlueRetro. bld.sh accepts -c 18 and implies RP2350 and PIO USB. The PCB design is not yet available.
