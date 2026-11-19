@@ -36,6 +36,9 @@
 
 #include "PicoPlusPsram.h"
 #include "vumeter.h"
+#if FRENS_ATTRACT_APP
+#include "gamepad.h"
+#endif
 #include "pwm_audio.h"
 
 // Pico W devices use a GPIO on the WIFI chip for the LED,
@@ -166,6 +169,89 @@ namespace Frens
         }
         return false;
     }
+
+#if FRENS_ATTRACT_APP
+    // pico-bootLoader attract mode, application side. The word in scratch[7]
+    // is the whole state (attract.h); nothing is kept in RAM, so it holds across
+    // the restarts the application makes itself.
+    bool attractActive()
+    {
+        return isLaunchedFromBootloader() &&
+               frens_attract_word_valid(watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH]);
+    }
+
+    void attractTakeover()
+    {
+        watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH] = 0;
+        printf("Attract mode: a player took over, attract mode off\n");
+    }
+
+    void attractNext()
+    {
+        // scratch[7] keeps the attract word: the loader picks the next one.
+        printf("Attract mode: time is up, back to the loader for the next application\n");
+        watchdog_reboot(0, 0, 0);
+        for (;;)
+            tight_loop_contents();
+    }
+
+    bool attractGameStarted()
+    {
+        return attractActive() &&
+               (watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH] & FRENS_ATTRACT_FLAG_STARTED) != 0;
+    }
+
+    void attractSetGameStarted()
+    {
+        if (attractActive())
+            watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH] |= FRENS_ATTRACT_FLAG_STARTED;
+    }
+
+    // Space-separated, as menu() takes its extensions.
+    static const char *attractAllowed = "";
+
+    void attractAllowExtensions(const char *extensions)
+    {
+        attractAllowed = extensions ? extensions : "";
+    }
+
+    const char *attractAllowedExtensions()
+    {
+        return attractAllowed;
+    }
+
+    // Once a frame (from pollHeadPhoneJack()). Any control in use ends attract
+    // mode; otherwise the application hands back once the game time is over,
+    // counted from this boot. It runs between frames in the main loop, so no
+    // write to the card is cut short. Controls are read from the state the
+    // input drivers already keep, without polling a device.
+    static void attractPoll()
+    {
+        if (!attractActive())
+            return;
+        uint32_t in = io::getCurrentGamePadState(0).buttons | io::getCurrentGamePadState(1).buttons;
+        const io::KeyboardState &kb = io::getCurrentKeyboardState();
+        in |= kb.modifier;
+        for (int i = 0; i < 6; i++)
+            in |= kb.keycode[i];
+        const io::MouseState &mouse = io::getCurrentMouseState();
+        in |= mouse.buttons;
+        if (mouse.dx > 8 || mouse.dx < -8 || mouse.dy > 8 || mouse.dy < -8)
+            in |= 1;
+        in |= nespad_states_ext[0] | nespad_states_ext[1];
+#if WII_PIN_SDA >= 0 and WII_PIN_SCL >= 0
+        in |= wiipad_last_read();
+#endif
+        if (in)
+        {
+            attractTakeover();
+            return;
+        }
+        const uint32_t minutes = watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH] & FRENS_ATTRACT_MINUTES_MASK;
+        if (time_us_64() >= (uint64_t)minutes * 60u * 1000000u)
+            attractNext();
+    }
+#endif
 #if !HSTX && FRAMEBUFFERISPOSSIBLE
     // uint8_t *framebuffer1; // [320 * 240];
     // uint8_t *framebuffer2; // [320 * 240];
@@ -2786,6 +2872,11 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
             extSpeakerEnabled = (hpToggle == HP_TOGGLE_CONNECT) ? true : false;
             // printf("Headphone toggle detected. Headphones %s\n", extSpeakerEnabled ? "unplugged, using speakers" : "plugged in, using headphones");
         }
+#endif
+#if FRENS_ATTRACT_APP
+        // Every application calls this once a frame, which makes it the one
+        // place attract mode can watch the controls and the clock.
+        attractPoll();
 #endif
     }
 

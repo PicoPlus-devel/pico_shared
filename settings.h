@@ -88,6 +88,11 @@ namespace FrensSettings
     emulators getEmulatorType();
     const char *getEmulatorTypeString(bool forSettings = false);
     emulators getEmulatorTypeForSettings();
+#if FRENS_ATTRACT_APP
+    // The folder resetsettings() starts the rom browser in: /roms/<type>, or
+    // /roms/arcade. Attract mode picks its game there.
+    void getDefaultRomDir(char *buf, size_t size);
+#endif
 }
 extern const int8_t *g_settings_visibility;
 extern const uint8_t *g_available_screen_modes;

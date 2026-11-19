@@ -6,6 +6,14 @@
 #include "hardware/i2c.h"
 #include "wiipad.h"
 static bool wiipad_connected = false;
+#if FRENS_ATTRACT_APP
+// What wiipad_read() returned last: attract mode's input watch (FrensHelpers.cpp)
+// reads it instead of polling the pad itself.
+static uint16_t wiipad_last = 0;
+uint16_t wiipad_last_read(void) {
+    return wiipad_last;
+}
+#endif
 
 bool wiipad_is_connected() {
     return wiipad_connected;
@@ -74,6 +82,9 @@ uint16_t wiipad_read(void) {
         if (!(buf[4] & 0x20) || !(buf[5] & 0x80)) v |= L;
         if (!(buf[4] & 0x02) || !(buf[5] & 0x04)) v |= R;
     }
+#if FRENS_ATTRACT_APP
+    wiipad_last = v;
+#endif
     return v;
 }
 

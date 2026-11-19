@@ -1,5 +1,9 @@
 # Release notes
 
+## Next
+
+- **Attract mode for pico-bootLoader** (bootloader builds only; RP2350). When the loader starts an application for its attract mode, the rom browser is skipped and a random game from the emulator's default folder under `/roms` starts. The first button press hands the game to the player; without one, the application returns to the loader after the game time and the loader starts the next one. An application takes part by adding `FRENS_ATTRACT_DIRS("/roms/<folder>");` to its main.cpp, or `FRENS_ATTRACT_DIRS_PSRAM(...)` when it cannot run without PSRAM (see `attract.h`). Games come in rounds: every game is started once before any comes again; the current round is listed in `/attract_<EMU>.txt`. Games named in `/emu/attract/<EMU>.txt` (popular games, from the loader's SD-card archive) form a pile with its own round (`/attract_<EMU>_popular.txt`) and come up about four times as often; `/attract_<EMU>_last.txt` keeps the game shown last, so it never comes twice in a row. Games are looked for in the default folder and three levels of folders below it, leaving out folders with BIOS, Tool(s), Test(s) or Music as a word of their name. Disc images are left out unless the application allows them with `Frens::attractAllowExtensions(".cue .chd")` (pico-pcePlus does when a CD BIOS is present). Games started this way are not added to the recently played list. RP2040 and standalone builds are unchanged.
+
 ## 17/11/2026
 
 - **Pico SDK 2.3 support for bootloader builds** (`BootPartition.cmake`, `bld.sh -b`). SDK 2.3 builds its linker script from include files, so the app partition is now set by overriding only `pico_flash_region.ld`, and no second `--platform` is passed to picotool. Builds with SDK 2.2.0 and older are unchanged.
