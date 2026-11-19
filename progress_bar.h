@@ -24,25 +24,24 @@
 #include <stdint.h>
 
 /*
- * PROGRESS_BAR_IN_SRAM (default 1)
+ * PROGRESS_BAR_IN_SRAM (default 0)
  *
- * Keeps the renderer and its glyph table in SRAM, which is what a caller
+ * 1 keeps the renderer and its glyph table in SRAM, which is what a caller
  * needs if it draws while XIP is disabled -- pico-bootLoader's uf2 loader
- * calls back from inside the flash write. That costs ~1.7 KB of SRAM
- * (760 B glyph table + ~640 B of code + the caller's own callback).
+ * calls back from inside the flash write, so pico-bootLoader's CMakeLists
+ * sets it to 1. That costs ~2 KB of SRAM (760 B glyph table + the code).
  *
- * Set to 0 when every call happens with XIP up. pico_snesPlus does: its
- * romflash.cpp restores QMI M0 to a safe timing inside the same
- * interrupts-off window as each erase/program, so the progress callback
- * always runs against healthy flash. On that board SRAM is the scarce
- * resource -- the render strips and GFX LocalState spill to PSRAM when the
- * heap runs out, which costs frame rate -- so the 1.7 KB is better spent
- * on the emulator.
+ * 0 (the default) is right when every call happens with XIP up, and that is
+ * the case for every emulator: Frens::flashProgress*() draws between
+ * flashEraseSafe()/flashProgramSafe() calls, which put QMI M0 back inside
+ * their own interrupts-off window, and the romflash.cpp writers of
+ * pico_snesPlus and pico-genesisPlus restore M0 the same way. The ~2 KB of
+ * SRAM is better spent on the emulator.
  *
  * Getting this wrong is a hard fault during a flash write, not a warning.
  */
 #ifndef PROGRESS_BAR_IN_SRAM
-#define PROGRESS_BAR_IN_SRAM 1
+#define PROGRESS_BAR_IN_SRAM 0
 #endif
 
 #ifdef __cplusplus
@@ -83,6 +82,15 @@ void progress_bar_draw(uint32_t numer, uint32_t denom,
  * col_text / col_bg are 16-bit pixel values, pre-fetched by the caller.
  */
 void progress_bar_draw_status(const char *text, uint16_t col_text, uint16_t col_bg);
+
+/*
+ * One line of text across the full screen width (40 cells), centred, with
+ * its top at pixel row y. Every cell is painted, so the line replaces
+ * whatever was drawn there before; text longer than 40 characters is cut
+ * off. For the message lines above the bar. Same SRAM-only guarantees as
+ * progress_bar_draw_status().
+ */
+void progress_bar_draw_text(int y, const char *text, uint16_t col_text, uint16_t col_bg);
 
 #ifdef __cplusplus
 }

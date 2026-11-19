@@ -281,6 +281,27 @@ namespace Frens
     // boot2. They disable interrupts around the operation themselves.
     void flashEraseSafe(uint32_t flashOffset, size_t count);
     void flashProgramSafe(uint32_t flashOffset, const uint8_t *data, size_t count);
+    // A progress screen for a write into flash before the game starts: the rom
+    // in flashrom(), an arcade port's ROM set in its flash cache. HSTX only:
+    // its scan-out runs from SRAM and keeps the picture through every erase
+    // and program. Elsewhere these do nothing.
+    // Begin starts the video when initAll() has not done that yet, clears the
+    // screen and shows title, name, "Do not power off." and the bar at 0%.
+    // Update takes the bytes written so far and the total. End shows 100% and
+    // "Done" when ok, until at least 4.5 s after Begin started the video (a
+    // monitor needs that long to show the new signal), then clears the screen,
+    // so nothing is left around the game picture.
+    // Call them between flashEraseSafe()/flashProgramSafe() calls, never from
+    // inside one.
+#if HSTX
+    void flashProgressBegin(const char *title, const char *name);
+    void flashProgressUpdate(uint32_t done, uint32_t total);
+    void flashProgressEnd(bool ok);
+#else
+    inline void flashProgressBegin(const char *, const char *) {}
+    inline void flashProgressUpdate(uint32_t, uint32_t) {}
+    inline void flashProgressEnd(bool) {}
+#endif
     //extern volatile ProcessScanLineFunction processScanLineFunction;
     void loadOverLay(const char *filename, const char *overlay);
     FRESULT pick_random_file_fullpath(const char *path, char *chosen, size_t bufsize);

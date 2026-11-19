@@ -13,6 +13,10 @@
 #define PB_W       240
 #define PB_H       20
 
+// The framebuffer the bar is drawn into: 320x240, one uint16_t per pixel.
+#define PB_SCREEN_W 320
+#define PB_SCREEN_H 240
+
 // Percentage label, drawn in a fixed-width field just below the bar so the
 // field self-clears: the text is right-aligned into PB_LBL_CHARS cells and
 // every cell (spaces included) is painted, so "100%" -> "  7%" leaves no
@@ -154,26 +158,46 @@ extern "C" void PB_FUNC(progress_bar_draw)(uint32_t numer, uint32_t denom,
     }
 }
 
+// Centre text in a field of `cells` glyphs starting at pixel (x, y). Every
+// cell is painted, spaces included, so a shorter string never leaves the tail
+// of a longer one behind. Text longer than the field is cut off.
+static void PB_FUNC(pb_draw_centred)(uint16_t *fb, int x, int y, int cells,
+                                     const char *text,
+                                     uint16_t col_text, uint16_t col_bg)
+{
+    int len = 0;
+    if (text) while (text[len] && len < cells) len++;
+    int pad = (cells - len) / 2;
+
+    for (int i = 0; i < cells; i++) {
+        int  col = i - pad;
+        char c   = (col >= 0 && col < len) ? text[col] : ' ';
+        pb_draw_glyph(fb, x + i * FONT_CHAR_WIDTH, y,
+                      pb_glyph_index(c), col_text, col_bg);
+    }
+}
+
 // Status line, centred in a fixed-width field just above the bar so it
-// self-clears: every cell is painted, so a shorter string never leaves the
-// tail of a longer one behind. Same SRAM-only constraints as the bar -- the
-// glyph table is in .data and nothing here reads flash -- so it is safe to
-// call from a flash-write progress callback.
+// self-clears. Same SRAM-only constraints as the bar -- the glyph table is in
+// .data and nothing here reads flash -- so it is safe to call from a
+// flash-write progress callback.
 void PB_FUNC(progress_bar_draw_status)(const char *text,
                                                    uint16_t col_text,
                                                    uint16_t col_bg)
 {
     uint16_t *fb = pb_framebuffer();
     if (!fb) return;
+    pb_draw_centred(fb, PB_STATUS_X, PB_STATUS_Y, PB_STATUS_CHARS,
+                    text, col_text, col_bg);
+}
 
-    int len = 0;
-    if (text) while (text[len] && len < PB_STATUS_CHARS) len++;
-    int pad = (PB_STATUS_CHARS - len) / 2;
-
-    for (int i = 0; i < PB_STATUS_CHARS; i++) {
-        int  col = i - pad;
-        char c   = (col >= 0 && col < len) ? text[col] : ' ';
-        pb_draw_glyph(fb, PB_STATUS_X + i * FONT_CHAR_WIDTH, PB_STATUS_Y,
-                      pb_glyph_index(c), col_text, col_bg);
-    }
+// A line of text across the full screen width (40 cells), centred, at pixel
+// row y. For the message lines above the bar.
+void PB_FUNC(progress_bar_draw_text)(int y, const char *text,
+                                     uint16_t col_text, uint16_t col_bg)
+{
+    uint16_t *fb = pb_framebuffer();
+    if (!fb || y < 0 || y + FONT_CHAR_HEIGHT > PB_SCREEN_H) return;
+    pb_draw_centred(fb, 0, y, PB_SCREEN_W / FONT_CHAR_WIDTH,
+                    text, col_text, col_bg);
 }
