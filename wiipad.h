@@ -13,6 +13,11 @@ extern void wiipad_begin(void);
 extern uint16_t wiipad_read(void);
 extern void wiipad_end(void);
 extern bool wiipad_is_connected();
+#include "attract.h"
+#if FRENS_ATTRACT_APP
+// The value wiipad_read() returned last (attract mode's input watch).
+extern uint16_t wiipad_last_read(void);
+#endif
 #if WII_PIN_SDA >= 0 and WII_PIN_SCL >= 0
 #define WIIPAD_IS_CONNECTED() (wiipad_is_connected())
 #else

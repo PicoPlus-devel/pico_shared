@@ -5744,6 +5744,645 @@ static void clampBrowserSelection()
     }
 }
 
+#if FRENS_ATTRACT_APP
+// --- pico-bootLoader attract mode (attract.h) --------------------------------
+// The loader started this application to show it off: instead of the rom
+// browser, menu() starts a random game from the emulator's default folder,
+// exactly as if it had been picked there, and the first input or the end of
+// the game time (Frens::attractPoll) does the rest.
+
+// Never picked: disc images (they need a BIOS and start slowly), SuperGrafx
+// (the browser sets its clock when one is highlighted) and music. An emulator
+// that gets a disc going by itself takes its images back in with
+// Frens::attractAllowExtensions().
+static const char *const attractSkippedExtensions[] = {".cue", ".chd", ".m3u", ".sgx", ".wav", ".nsf"};
+// Games are looked for in the emulator's folder and three levels of folders below
+// it (/roms/PCE/CD/CHD/<game>/<game>.chd), up to this many folders.
+static constexpr int ATTRACT_FOLDER_DEPTH = 3;
+static constexpr int ATTRACT_MAX_FOLDERS = 256;
+static constexpr size_t ATTRACT_FOLDER_NAMES = 8192; // their paths below it, one after the other
+
+// True when the space-separated list holds the extension ext (".cue").
+static bool attractExtensionListed(const char *list, const char *ext)
+{
+    const size_t n = strlen(ext);
+    for (const char *p = list; *p;)
+    {
+        while (*p == ' ')
+            p++;
+        const char *end = p;
+        while (*end && *end != ' ')
+            end++;
+        if ((size_t)(end - p) == n && strncasecmp(p, ext, n) == 0)
+            return true;
+        p = end;
+    }
+    return false;
+}
+
+static bool attractSkipped(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    if (!dot)
+        return false;
+    for (const char *ext : attractSkippedExtensions)
+    {
+        if (strcasecmp(dot, ext) == 0)
+            return !attractExtensionListed(Frens::attractAllowedExtensions(), dot);
+    }
+    return false;
+}
+
+// Folders not looked in: BIOS images, tools and test cartridges, music players.
+// A folder is left out when one of these is a whole word of its name, in any
+// case ("5 Bios - CD Systems", "5 Tools & Service Test Carts"; not "Greatest").
+static const char *const attractSkippedFolderWords[] = {"bios", "tool", "tools", "test", "tests", "music"};
+
+static bool attractSkippedFolder(const char *name)
+{
+    auto alnum = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'); };
+    for (const char *p = name; *p;)
+    {
+        while (*p && !alnum(*p))
+            p++;
+        size_t n = 0;
+        while (alnum(p[n]))
+            n++;
+        for (const char *w : attractSkippedFolderWords)
+        {
+            if (strlen(w) == n && strncasecmp(p, w, n) == 0)
+                return true;
+        }
+        p += n;
+    }
+    return false;
+}
+
+// --- Rounds of games --------------------------------------------------------
+// As the loader does with applications, an emulator shows every game once, in
+// random order, before any comes again, and a new round does not start with the
+// game shown last. The games of the current round are listed one full path a
+// line in /attract_<EMU>.txt on the card, beside /recent_<EMU>.txt; a new round
+// starts the file over. Only a hash of each path is kept in memory. Without the
+// file, or without memory for it, every game is picked as if none had been
+// shown. Paths are hashed in lower case: FAT does not tell /ROMS/x from /roms/x.
+static constexpr int ATTRACT_ROUND_MAX = 8192;   // games one round remembers
+
+static uint32_t attractHashLower(uint32_t h, const char *s)
+{
+    for (; *s; s++)
+    {
+        unsigned char c = (unsigned char)*s;
+        if (c >= 'A' && c <= 'Z')
+            c = (unsigned char)(c - 'A' + 'a');
+        h = (h ^ c) * 16777619u; // FNV-1a
+    }
+    return h;
+}
+
+static uint32_t attractGameHash(const char *dir, const char *name)
+{
+    uint32_t h = attractHashLower(2166136261u, dir);
+    h = attractHashLower(h, "/");
+    return attractHashLower(h, name);
+}
+
+struct AttractRound
+{
+    uint32_t *seen; // sorted hashes of the games shown this round; nullptr: none known
+    int count;
+    uint32_t last;  // hash of the game shown last, 0: none
+};
+
+static void attractRoundFile(char *buf, size_t size)
+{
+    snprintf(buf, size, "/attract_%s.txt", FrensSettings::getEmulatorTypeString());
+}
+
+// Read the round from the card. Two passes: count the games, then hash them
+// into an array of exactly that size.
+static void attractRoundLoad(AttractRound &r, const char *file)
+{
+    r = {nullptr, 0, 0};
+    FIL *fil = (FIL *)Frens::f_malloc(sizeof(FIL));
+    char *line = (char *)Frens::f_malloc(FF_MAX_LFN + 2);
+    if (fil && line && f_open(fil, file, FA_READ) == FR_OK)
+    {
+        int lines = 0;
+        while (f_gets(line, FF_MAX_LFN + 2, fil))
+        {
+            if (line[0] != '#' && line[0] != '\r' && line[0] != '\n')
+                lines++;
+        }
+        if (lines > ATTRACT_ROUND_MAX)
+            lines = ATTRACT_ROUND_MAX;
+        r.seen = lines ? (uint32_t *)Frens::f_malloc(lines * sizeof(uint32_t)) : nullptr;
+        if (r.seen && f_lseek(fil, 0) == FR_OK)
+        {
+            while (f_gets(line, FF_MAX_LFN + 2, fil))
+            {
+                line[strcspn(line, "\r\n")] = 0;
+                if (!line[0] || line[0] == '#')
+                    continue;
+                const uint32_t h = attractHashLower(2166136261u, line);
+                r.last = h;
+                if (r.count < lines)
+                    r.seen[r.count++] = h;
+            }
+            std::sort(r.seen, r.seen + r.count);
+        }
+        f_close(fil);
+    }
+    Frens::f_free(fil);
+    Frens::f_free(line);
+}
+
+static bool attractRoundHas(const AttractRound &r, uint32_t h)
+{
+    return r.seen && std::binary_search(r.seen, r.seen + r.count, h);
+}
+
+// Add the game to the round, or start a new round with it. A failure only means
+// the game may come again sooner; attract mode carries on.
+static void attractRoundAdd(const char *file, const char *dir, const char *name, bool newRound)
+{
+    FIL *fil = (FIL *)Frens::f_malloc(sizeof(FIL));
+    char *line = (char *)Frens::f_malloc(FF_MAX_LFN + 2);
+    if (fil && line &&
+        f_open(fil, file, FA_WRITE | (newRound ? FA_CREATE_ALWAYS : FA_OPEN_APPEND)) == FR_OK)
+    {
+        UINT bw;
+        int n;
+        if (newRound || f_size(fil) == 0)
+        {
+            n = snprintf(line, FF_MAX_LFN + 2,
+                         "# pico-bootLoader attract mode: the %s games shown in this round.\n"
+                         "# Delete this file to start a new round.\n",
+                         FrensSettings::getEmulatorTypeString());
+            f_write(fil, line, (UINT)n, &bw);
+        }
+        n = snprintf(line, FF_MAX_LFN + 2, "%s/%s\n", dir, name);
+        if (n > 0 && n < FF_MAX_LFN + 2)
+            f_write(fil, line, (UINT)n, &bw);
+        f_close(fil);
+    }
+    else
+    {
+        printf("Attract mode: cannot write %s\n", file);
+    }
+    Frens::f_free(fil);
+    Frens::f_free(line);
+}
+
+// With a popular list the games are shown from two piles, and each pile's round
+// knows only its own last game. The game shown last of all is kept in
+// /attract_<EMU>_last.txt, so that it does not come straight back from either.
+static void attractLastFile(char *buf, size_t size)
+{
+    snprintf(buf, size, "/attract_%s_last.txt", FrensSettings::getEmulatorTypeString());
+}
+
+// Hash of the game shown last, as attractGameHash() makes it; 0 when not known.
+static uint32_t attractLastLoad()
+{
+    uint32_t h = 0;
+    char file[48];
+    attractLastFile(file, sizeof(file));
+    FIL *fil = (FIL *)Frens::f_malloc(sizeof(FIL));
+    char *line = (char *)Frens::f_malloc(FF_MAX_LFN + 2);
+    if (fil && line && f_open(fil, file, FA_READ) == FR_OK)
+    {
+        while (f_gets(line, FF_MAX_LFN + 2, fil))
+        {
+            line[strcspn(line, "\r\n")] = 0;
+            if (line[0] && line[0] != '#')
+            {
+                h = attractHashLower(2166136261u, line);
+                break;
+            }
+        }
+        f_close(fil);
+    }
+    Frens::f_free(fil);
+    Frens::f_free(line);
+    return h;
+}
+
+static void attractLastSave(const char *dir, const char *name)
+{
+    char file[48];
+    attractLastFile(file, sizeof(file));
+    FIL *fil = (FIL *)Frens::f_malloc(sizeof(FIL));
+    char *line = (char *)Frens::f_malloc(FF_MAX_LFN + 80);
+    if (fil && line && f_open(fil, file, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK)
+    {
+        UINT bw;
+        int n = snprintf(line, FF_MAX_LFN + 80, "# pico-bootLoader attract mode: the %s game shown last.\n%s/%s\n",
+                         FrensSettings::getEmulatorTypeString(), dir, name);
+        if (n > 0 && n < FF_MAX_LFN + 80)
+            f_write(fil, line, (UINT)n, &bw);
+        f_close(fil);
+    }
+    else
+    {
+        printf("Attract mode: cannot write %s\n", file);
+    }
+    Frens::f_free(fil);
+    Frens::f_free(line);
+}
+
+// --- Popular games --------------------------------------------------------------
+// /emu/attract/<EMU>.txt (in the SD-card archive, made by the loader's
+// tools/make_attract_lists.py from the LaunchBox Games Database) lists the
+// popular games of the emulator's systems: per line, the keys their ROM files
+// may match, then '#' and a comment. The games on the card that match are a pile
+// of their own, with its own round (/attract_<EMU>_popular.txt), and that pile
+// is chosen as if each of its games counted ATTRACT_POPULAR_WEIGHT times. Without
+// the list every game is in the other pile, as before.
+static constexpr uint32_t ATTRACT_POPULAR_WEIGHT = 4;
+static constexpr int ATTRACT_POPULAR_MAX = 2048; // keys read from a list
+
+// The key of a title: tools/make_attract_lists.py, title_key(), does exactly
+// the same, so change both together. The extension and everything from the
+// first " (" or " [" go (region, version and dump tags), bytes above 127 go,
+// '&' reads "and", the articles ", the" / ", an" / ", a" (before the end or a
+// character that is not a letter or digit) and a leading "the " / "an " / "a "
+// go, and of the rest only letters and digits stay, in lower case. So
+// "Legend of Zelda, The - A Link to the Past (USA).sfc" and "The Legend of
+// Zelda: A Link to the Past" are both "legendofzeldaalinktothepast".
+static void attractTitleKey(const char *name, char *key, size_t size)
+{
+    char s[2 * ROMLISTER_MAXPATH];
+    size_t n = 0;
+    const char *dot = strrchr(name, '.');
+    const char *cut = name + strlen(name);
+    if (dot)
+        cut = dot;
+    const char *paren = strstr(name, " (");
+    const char *bracket = strstr(name, " [");
+    if (paren && paren < cut)
+        cut = paren;
+    if (bracket && bracket < cut)
+        cut = bracket;
+    for (const char *p = name; p < cut && n + 6 < sizeof(s); p++)
+    {
+        unsigned char c = (unsigned char)*p;
+        if (c >= 128)
+            continue;
+        if (c == '&')
+        {
+            memcpy(s + n, " and ", 5);
+            n += 5;
+            continue;
+        }
+        s[n++] = (char)((c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c);
+    }
+    s[n] = 0;
+    // articles before the end or a non-alphanumeric character
+    static const char *const arts[] = {", the", ", an", ", a"};
+    size_t w = 0;
+    for (size_t i = 0; i < n;)
+    {
+        bool hit = false;
+        for (const char *art : arts)
+        {
+            const size_t len = strlen(art);
+            if (strncmp(s + i, art, len) != 0)
+                continue;
+            const char after = s[i + len]; // the terminator when the article ends the title
+            if (!((after >= 'a' && after <= 'z') || (after >= '0' && after <= '9')))
+            {
+                i += len;
+                hit = true;
+                break;
+            }
+        }
+        if (!hit)
+            s[w++] = s[i++];
+    }
+    s[w] = 0;
+    const char *t = s;
+    static const char *const leading[] = {"the ", "an ", "a "};
+    for (const char *art : leading)
+    {
+        if (strncmp(t, art, strlen(art)) == 0)
+        {
+            t += strlen(art);
+            break;
+        }
+    }
+    size_t k = 0;
+    for (; *t && k + 1 < size; t++)
+    {
+        if ((*t >= 'a' && *t <= 'z') || (*t >= '0' && *t <= '9'))
+            key[k++] = *t;
+    }
+    key[k] = 0;
+}
+
+// The popular games' keys, as sorted hashes. count 0: no list.
+struct AttractPopular
+{
+    uint32_t *keys;
+    int count;
+};
+
+static void attractPopularLoad(AttractPopular &pop)
+{
+    pop = {nullptr, 0};
+    char file[48];
+    snprintf(file, sizeof(file), "/emu/attract/%s.txt", FrensSettings::getEmulatorTypeString());
+    FIL *fil = (FIL *)Frens::f_malloc(sizeof(FIL));
+    char *line = (char *)Frens::f_malloc(512);
+    pop.keys = (uint32_t *)Frens::f_malloc(ATTRACT_POPULAR_MAX * sizeof(uint32_t));
+    if (fil && line && pop.keys && f_open(fil, file, FA_READ) == FR_OK)
+    {
+        while (f_gets(line, 512, fil) && pop.count < ATTRACT_POPULAR_MAX)
+        {
+            char *hash = strchr(line, '#');
+            if (hash)
+                *hash = 0;
+            for (char *tok = strtok(line, " \t\r\n"); tok && pop.count < ATTRACT_POPULAR_MAX;
+                 tok = strtok(nullptr, " \t\r\n"))
+            {
+                pop.keys[pop.count++] = attractHashLower(2166136261u, tok);
+            }
+        }
+        f_close(fil);
+        std::sort(pop.keys, pop.keys + pop.count);
+        printf("Attract mode: %d popular-game keys in %s\n", pop.count, file);
+    }
+    Frens::f_free(fil);
+    Frens::f_free(line);
+    if (!pop.count)
+    {
+        Frens::f_free(pop.keys);
+        pop.keys = nullptr;
+    }
+}
+
+static bool attractIsPopular(const AttractPopular &pop, const char *name)
+{
+    if (!pop.count)
+        return false;
+    char key[ROMLISTER_MAXPATH];
+    attractTitleKey(name, key, sizeof(key));
+    return key[0] && std::binary_search(pop.keys, pop.keys + pop.count, attractHashLower(2166136261u, key));
+}
+
+// Reservoir sampling: every game offered so far had the same chance to be kept.
+struct AttractReservoir
+{
+    char *dir;  // FF_MAX_LFN
+    char *name; // ROMLISTER_MAXPATH
+    uint32_t seen;
+};
+
+static void attractOffer(AttractReservoir &r, const char *dir, const char *name)
+{
+    r.seen++;
+    if (get_rand_32() % r.seen == 0)
+    {
+        snprintf(r.dir, FF_MAX_LFN, "%s", dir);
+        snprintf(r.name, ROMLISTER_MAXPATH, "%s", name);
+    }
+}
+
+// A pile of games with its own round. One pass over the games makes three draws
+// per pile at once: among the games this round has not shown (the normal pick),
+// among all but the game shown last (the first of a new round), and among all
+// (a pile of one).
+struct AttractPile
+{
+    const char *what; // for the log
+    char file[48];    // its round file
+    AttractRound round;
+    AttractReservoir fresh, other, any;
+};
+
+struct AttractScan
+{
+    AttractPile *popular, *rest;
+    const AttractPopular *list;
+    uint32_t last; // the game shown last, in either pile; 0: not known, each pile's own last then counts
+};
+
+static void attractConsider(Frens::RomLister &rl, const char *dir, AttractScan &scan)
+{
+    Frens::RomLister::RomEntry *e = rl.GetEntries();
+    for (size_t i = 0; e && i < rl.Count(); i++)
+    {
+        if (e[i].IsDirectory || attractSkipped(e[i].Path))
+            continue;
+        AttractPile &pile = attractIsPopular(*scan.list, e[i].Path) ? *scan.popular : *scan.rest;
+        const uint32_t h = attractGameHash(dir, e[i].Path);
+        attractOffer(pile.any, dir, e[i].Path);
+        // the game shown last does not come straight back
+        if (scan.last ? h == scan.last : (h == scan.popular->round.last || h == scan.rest->round.last))
+            continue;
+        attractOffer(pile.other, dir, e[i].Path);
+        if (!attractRoundHas(pile.round, h))
+            attractOffer(pile.fresh, dir, e[i].Path);
+    }
+}
+
+// A random game from root and three levels of folders below it, filtered as the rom
+// browser filters them (RomLister: extensions, size, hidden and system folders).
+// First the pile: the popular games count ATTRACT_POPULAR_WEIGHT times each.
+// Then a game of that pile its round has not shown yet. The pick is written to
+// the pile's round file before it starts, as a board without PSRAM restarts to
+// load it. Its own frame, so that the RomLister is off the stack before the game
+// loads.
+static __attribute__((noinline)) bool attractPickRandomRom(const char *root, const char *allowedExtensions,
+                                                           char *dir, char *name)
+{
+    FILINFO *fno = (FILINFO *)Frens::f_malloc(sizeof(FILINFO));
+    bool isDir = fno && f_stat(root, fno) == FR_OK && (fno->fattrib & AM_DIR);
+    Frens::f_free(fno);
+    if (!isDir)
+    {
+        printf("Attract mode: no folder %s\n", root);
+        return false;
+    }
+    AttractPopular list;
+    attractPopularLoad(list);
+    AttractPile *piles = (AttractPile *)Frens::f_malloc(2 * sizeof(AttractPile));
+    // six draws, each a directory and a name
+    const size_t slot = FF_MAX_LFN + ROMLISTER_MAXPATH;
+    char *bufs = (char *)Frens::f_malloc(6 * slot);
+    // the folders below root still to list, as paths relative to it, one after
+    // the other in names; folder[i] is where the i-th starts
+    char *names = (char *)Frens::f_malloc(ATTRACT_FOLDER_NAMES);
+    uint16_t *folder = (uint16_t *)Frens::f_malloc(ATTRACT_MAX_FOLDERS * sizeof(uint16_t));
+    uint8_t *depth = (uint8_t *)Frens::f_malloc(ATTRACT_MAX_FOLDERS);
+    char *sub = (char *)Frens::f_malloc(FF_MAX_LFN);
+    if (!piles || !bufs)
+    {
+        Frens::f_free(list.keys);
+        Frens::f_free(piles);
+        Frens::f_free(bufs);
+        Frens::f_free(names);
+        Frens::f_free(folder);
+        Frens::f_free(depth);
+        Frens::f_free(sub);
+        printf("Attract mode: out of memory\n");
+        return false;
+    }
+    AttractPile &popular = piles[0], &rest = piles[1];
+    popular.what = "popular";
+    rest.what = "other";
+    snprintf(popular.file, sizeof(popular.file), "/attract_%s_popular.txt", FrensSettings::getEmulatorTypeString());
+    attractRoundFile(rest.file, sizeof(rest.file));
+    int b = 0;
+    for (AttractPile *p : {&popular, &rest})
+    {
+        attractRoundLoad(p->round, p->file);
+        for (AttractReservoir *r : {&p->fresh, &p->other, &p->any})
+        {
+            *r = {bufs + b * slot, bufs + b * slot + FF_MAX_LFN, 0};
+            b++;
+        }
+    }
+    AttractScan scan = {&popular, &rest, &list, list.count ? attractLastLoad() : 0u};
+    int nsubs = 0;
+    {
+        Frens::RomLister rl(32768, allowedExtensions);
+        size_t used = 0;
+        // The folders in the listing rl holds, which is of the folder at path
+        // (relative to root, "" for root itself) and level, go to the list.
+        auto addFolders = [&](const char *path, int level) {
+            Frens::RomLister::RomEntry *e = rl.GetEntries();
+            for (size_t i = 0; names && folder && depth && e && i < rl.Count() && nsubs < ATTRACT_MAX_FOLDERS; i++)
+            {
+                if (!e[i].IsDirectory)
+                    continue;
+                if (attractSkippedFolder(e[i].Path))
+                {
+                    printf("Attract mode: not looking in %s%s%s\n", path, *path ? "/" : "", e[i].Path);
+                    continue;
+                }
+                int n = snprintf(names + used, ATTRACT_FOLDER_NAMES - used, "%s%s%s", path, *path ? "/" : "", e[i].Path);
+                if (n < 0 || used + n + 1 > ATTRACT_FOLDER_NAMES)
+                    break;
+                folder[nsubs] = (uint16_t)used;
+                depth[nsubs++] = (uint8_t)(level + 1);
+                used += n + 1;
+            }
+        };
+        rl.list(root);
+        addFolders("", 0);
+        attractConsider(rl, root, scan);
+        for (int i = 0; sub && i < nsubs; i++)
+        {
+            snprintf(sub, FF_MAX_LFN, "%s/%s", root, names + folder[i]);
+            rl.list(sub);
+            if (depth[i] < ATTRACT_FOLDER_DEPTH)
+                addFolders(names + folder[i], depth[i]);
+            attractConsider(rl, sub, scan);
+        }
+    }
+    const uint32_t nPopular = popular.any.seen, nRest = rest.any.seen;
+    printf("Attract mode: %lu games in %s and %d folders below it: %lu popular (%lu not shown yet), "
+           "%lu others (%lu not shown yet)\n",
+           (unsigned long)(nPopular + nRest), root, nsubs, (unsigned long)nPopular,
+           (unsigned long)popular.fresh.seen, (unsigned long)nRest, (unsigned long)rest.fresh.seen);
+    bool found = nPopular + nRest > 0;
+    if (found)
+    {
+        const uint32_t tickets = ATTRACT_POPULAR_WEIGHT * nPopular + nRest;
+        AttractPile *chosen = (get_rand_32() % tickets < ATTRACT_POPULAR_WEIGHT * nPopular) ? &popular : &rest;
+        // A pile holding nothing but the game shown last gives way to the other
+        // pile, when that has another game: the same game never comes twice in a row.
+        AttractPile *otherPile = chosen == &popular ? &rest : &popular;
+        if (chosen->other.seen == 0 && otherPile->other.seen > 0)
+            chosen = otherPile;
+        AttractPile &pile = *chosen;
+        const bool newRound = pile.fresh.seen == 0;
+        // a new round does not start with the last game unless it is the only one
+        const AttractReservoir &r = !newRound ? pile.fresh : pile.other.seen ? pile.other : pile.any;
+        if (newRound)
+            printf("Attract mode: every %s game shown, a new round\n", pile.what);
+        printf("Attract mode: from the %s games\n", pile.what);
+        snprintf(dir, FF_MAX_LFN, "%s", r.dir);
+        snprintf(name, ROMLISTER_MAXPATH, "%s", r.name);
+        attractRoundAdd(pile.file, dir, name, newRound);
+        if (list.count)
+            attractLastSave(dir, name);
+    }
+    Frens::f_free(popular.round.seen);
+    Frens::f_free(rest.round.seen);
+    Frens::f_free(list.keys);
+    Frens::f_free(piles);
+    Frens::f_free(bufs);
+    Frens::f_free(sub);
+    Frens::f_free(names);
+    Frens::f_free(folder);
+    Frens::f_free(depth);
+    return found;
+}
+
+// Starts a random game and returns with rompath set, as menu() does after a
+// pick; or does not return: the restart that loads the rom on a board without
+// PSRAM, or back to the loader when there is nothing (more) to show.
+static __attribute__((noinline)) void attractStartRandomRom(char *errorMessage, bool isFatal,
+                                                            const char *allowedExtensions, char *rompath)
+{
+    if (isFatal || errorMessage[0])
+    {
+        printf("Attract mode: %s\n", errorMessage);
+        Frens::attractNext();
+    }
+    if (Frens::attractGameStarted())
+    {
+        // menu() again after the game started: it ended or could not be loaded
+        printf("Attract mode: the game is over\n");
+        Frens::attractNext();
+    }
+    char *dir = (char *)Frens::f_malloc(FF_MAX_LFN);
+    char *name = (char *)Frens::f_malloc(ROMLISTER_MAXPATH);
+    char *root = (char *)Frens::f_malloc(FF_MAX_LFN);
+    if (!dir || !name || !root)
+    {
+        printf("Attract mode: out of memory\n");
+        Frens::attractNext();
+    }
+    FrensSettings::getDefaultRomDir(root, FF_MAX_LFN);
+    bool found = attractPickRandomRom(root, allowedExtensions, dir, name);
+    Frens::f_free(root);
+    if (!found)
+    {
+        Frens::attractNext();
+    }
+    printf("Attract mode: starting %s/%s\n", dir, name);
+    Frens::attractSetGameStarted();
+    globalErrorMessage = errorMessage;
+    bool ok = startRom(dir, name, rompath);
+    Frens::f_free(dir);
+    Frens::f_free(name);
+    if (!ok || errorMessage[0])
+    {
+        printf("Attract mode: cannot start it: %s\n", errorMessage);
+        Frens::attractNext();
+    }
+    if (!Frens::isPsramEnabled() && !skipRebootAfterMenu)
+    {
+        // As at the end of menu(): flashrom() loads it after the restart, which
+        // the loader resumes. scratch[7] still says attract mode.
+#if WII_PIN_SDA >= 0 and WII_PIN_SCL >= 0
+        wiipad_end();
+#endif
+        Frens::resetWifi();
+        printf("Attract mode: restarting to load the game\n");
+        watchdog_enable(1, 1);
+        while (1)
+        {
+            tight_loop_contents();
+        }
+    }
+    Frens::PaceFrames60fps(true, true); // reset frame pacing, as menu() does
+}
+#endif
+
 void menu(const char *title, char *errorMessage, bool isFatal, bool showSplash, const char *allowedExtensions, char *rompath)
 {
     FRESULT fr;
@@ -5762,6 +6401,13 @@ void menu(const char *title, char *errorMessage, bool isFatal, bool showSplash, 
     // artworkEnabled = isArtWorkEnabled();
     crcOffset = FrensSettings::getEmulatorType() == FrensSettings::emulators::NES ? 16 : 0; // crc offset according to  https://github.com/ducalex/retro-go-covers
     printf("Emulator: %s, crcOffset: %d\n", FrensSettings::getEmulatorTypeString(), crcOffset);
+#if FRENS_ATTRACT_APP
+    if (Frens::attractActive())
+    {
+        attractStartRandomRom(errorMessage, isFatal, allowedExtensions, rompath);
+        return;
+    }
+#endif
 #if !HSTX
     int margintop = dvi_->getBlankSettings().top;
     int marginbottom = dvi_->getBlankSettings().bottom;

@@ -87,6 +87,21 @@ enum class ScanlineType : uint8_t
 #ifndef BOOTLOADER_BUILD
 #define BOOTLOADER_BUILD 0
 #endif
+#include "attract.h"
+// FRENS_ATTRACT_DIRS("/roms/NES"); at file scope in an application's main.cpp
+// lets pico-bootLoader's attract mode pick the application, as long as one of
+// the '|'-separated paths exists on the card (see attract.h). It expands to
+// nothing outside bootloader builds.
+// FRENS_ATTRACT_DIRS_PSRAM(...) does the same for an application that cannot
+// run without PSRAM: the loader leaves it out on a board that has none.
+#if FRENS_ATTRACT_APP
+#include "pico/binary_info.h"
+#define FRENS_ATTRACT_DIRS(paths) bi_decl(bi_program_feature(FRENS_ATTRACT_FEATURE_PREFIX paths))
+#define FRENS_ATTRACT_DIRS_PSRAM(paths) bi_decl(bi_program_feature(FRENS_ATTRACT_FEATURE_PREFIX "@psram|" paths))
+#else
+#define FRENS_ATTRACT_DIRS(paths)
+#define FRENS_ATTRACT_DIRS_PSRAM(paths)
+#endif
 // Testing aid, off by default. On boards without PSRAM the menu normally
 // reboots to start a game, even when the rom is already programmed into flash.
 // With this set to 1 the menu returns to the emulator directly in that case,
@@ -266,6 +281,27 @@ namespace Frens
     // boot2. They disable interrupts around the operation themselves.
     void flashEraseSafe(uint32_t flashOffset, size_t count);
     void flashProgramSafe(uint32_t flashOffset, const uint8_t *data, size_t count);
+    // A progress screen for a write into flash before the game starts: the rom
+    // in flashrom(), an arcade port's ROM set in its flash cache. HSTX only:
+    // its scan-out runs from SRAM and keeps the picture through every erase
+    // and program. Elsewhere these do nothing.
+    // Begin starts the video when initAll() has not done that yet, clears the
+    // screen and shows title, name, "Do not power off." and the bar at 0%.
+    // Update takes the bytes written so far and the total. End shows 100% and
+    // "Done" when ok, until at least 4.5 s after Begin started the video (a
+    // monitor needs that long to show the new signal), then clears the screen,
+    // so nothing is left around the game picture.
+    // Call them between flashEraseSafe()/flashProgramSafe() calls, never from
+    // inside one.
+#if HSTX
+    void flashProgressBegin(const char *title, const char *name);
+    void flashProgressUpdate(uint32_t done, uint32_t total);
+    void flashProgressEnd(bool ok);
+#else
+    inline void flashProgressBegin(const char *, const char *) {}
+    inline void flashProgressUpdate(uint32_t, uint32_t) {}
+    inline void flashProgressEnd(bool) {}
+#endif
     //extern volatile ProcessScanLineFunction processScanLineFunction;
     void loadOverLay(const char *filename, const char *overlay);
     FRESULT pick_random_file_fullpath(const char *path, char *chosen, size_t bufsize);
@@ -297,6 +333,32 @@ namespace Frens
     void rebootToBootloader();
     void markLaunchedFromBootloader();
     bool consumeReturnToBootloaderRequest();
+
+#if FRENS_ATTRACT_APP
+    // pico-bootLoader attract mode, application side (see attract.h). Bootloader
+    // builds only. pollHeadPhoneJack(), which every application calls once a
+    // frame, ends attract mode at the first input and hands back to the loader
+    // when the game time is over; menu() starts a random game instead of
+    // showing the rom browser.
+    //   attractActive()         -- started by the loader's attract mode, and
+    //                              nobody has touched a control since.
+    //   attractTakeover()       -- a player took over: attract mode off.
+    //   attractNext()           -- back to the loader, which picks the next
+    //                              application. Does not return.
+    //   attractGameStarted() / attractSetGameStarted() -- the game has been
+    //                              started; kept across the restart a board
+    //                              without PSRAM makes to load a rom.
+    //   attractAllowExtensions(".cue .chd") -- lets menu() pick files it leaves
+    //                              out by default (disc images, see menu.cpp);
+    //                              for an emulator that starts them unattended.
+    bool attractActive();
+    void attractTakeover();
+    [[noreturn]] void attractNext();
+    bool attractGameStarted();
+    void attractSetGameStarted();
+    void attractAllowExtensions(const char *extensions);
+    const char *attractAllowedExtensions();
+#endif
 
 } // namespace Frens
 

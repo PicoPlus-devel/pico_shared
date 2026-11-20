@@ -36,7 +36,13 @@
 
 #include "PicoPlusPsram.h"
 #include "vumeter.h"
+#if FRENS_ATTRACT_APP
+#include "gamepad.h"
+#endif
 #include "pwm_audio.h"
+#if HSTX
+#include "progress_bar.h"
+#endif
 
 // Pico W devices use a GPIO on the WIFI chip for the LED,
 // so when building for Pico W, CYW43_WL_GPIO_LED_PIN will be defined
@@ -53,6 +59,11 @@
 #endif
 // see setPreVideoInitTask()
 static void (*preVideoInitTask)(void) = nullptr;
+#if HSTX
+// Set once hstx_init() has run: normally by initDVandAudio(), earlier by
+// flashProgressBegin() when a write into flash needs the screen first.
+static bool hstxStarted = false;
+#endif
 #if !HSTX
 std::unique_ptr<dvi::DVI> dvi_;
 util::ExclusiveProc exclProc_;
@@ -166,6 +177,89 @@ namespace Frens
         }
         return false;
     }
+
+#if FRENS_ATTRACT_APP
+    // pico-bootLoader attract mode, application side. The word in scratch[7]
+    // is the whole state (attract.h); nothing is kept in RAM, so it holds across
+    // the restarts the application makes itself.
+    bool attractActive()
+    {
+        return isLaunchedFromBootloader() &&
+               frens_attract_word_valid(watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH]);
+    }
+
+    void attractTakeover()
+    {
+        watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH] = 0;
+        printf("Attract mode: a player took over, attract mode off\n");
+    }
+
+    void attractNext()
+    {
+        // scratch[7] keeps the attract word: the loader picks the next one.
+        printf("Attract mode: time is up, back to the loader for the next application\n");
+        watchdog_reboot(0, 0, 0);
+        for (;;)
+            tight_loop_contents();
+    }
+
+    bool attractGameStarted()
+    {
+        return attractActive() &&
+               (watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH] & FRENS_ATTRACT_FLAG_STARTED) != 0;
+    }
+
+    void attractSetGameStarted()
+    {
+        if (attractActive())
+            watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH] |= FRENS_ATTRACT_FLAG_STARTED;
+    }
+
+    // Space-separated, as menu() takes its extensions.
+    static const char *attractAllowed = "";
+
+    void attractAllowExtensions(const char *extensions)
+    {
+        attractAllowed = extensions ? extensions : "";
+    }
+
+    const char *attractAllowedExtensions()
+    {
+        return attractAllowed;
+    }
+
+    // Once a frame (from pollHeadPhoneJack()). Any control in use ends attract
+    // mode; otherwise the application hands back once the game time is over,
+    // counted from this boot. It runs between frames in the main loop, so no
+    // write to the card is cut short. Controls are read from the state the
+    // input drivers already keep, without polling a device.
+    static void attractPoll()
+    {
+        if (!attractActive())
+            return;
+        uint32_t in = io::getCurrentGamePadState(0).buttons | io::getCurrentGamePadState(1).buttons;
+        const io::KeyboardState &kb = io::getCurrentKeyboardState();
+        in |= kb.modifier;
+        for (int i = 0; i < 6; i++)
+            in |= kb.keycode[i];
+        const io::MouseState &mouse = io::getCurrentMouseState();
+        in |= mouse.buttons;
+        if (mouse.dx > 8 || mouse.dx < -8 || mouse.dy > 8 || mouse.dy < -8)
+            in |= 1;
+        in |= nespad_states_ext[0] | nespad_states_ext[1];
+#if WII_PIN_SDA >= 0 and WII_PIN_SCL >= 0
+        in |= wiipad_last_read();
+#endif
+        if (in)
+        {
+            attractTakeover();
+            return;
+        }
+        const uint32_t minutes = watchdog_hw->scratch[FRENS_ATTRACT_SCRATCH] & FRENS_ATTRACT_MINUTES_MASK;
+        if (time_us_64() >= (uint64_t)minutes * 60u * 1000000u)
+            attractNext();
+    }
+#endif
 #if !HSTX && FRAMEBUFFERISPOSSIBLE
     // uint8_t *framebuffer1; // [320 * 240];
     // uint8_t *framebuffer2; // [320 * 240];
@@ -1422,6 +1516,9 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
                     if (filesize < maxRomSize)
                     {
                         bool readError = false;
+                        // HSTX: a screen with a progress bar while it writes.
+                        flashProgressBegin("Writing game to flash memory",
+                                           GetfileNameFromFullPath(selectedRom));
                         for (;;)
                         {
                             fr = f_read(&fil, buffer, bufsize, &bytesRead);
@@ -1458,6 +1555,7 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
                                 totalBytes += bytesRead;
                                 printf("%u/%llu bytes flashed\n", totalBytes,
                                        (unsigned long long)filesize);
+                                flashProgressUpdate(totalBytes, (uint32_t)filesize);
                                 // keep the usb stack running
                                 tuh_task();
                             }
@@ -1488,6 +1586,7 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
                                 flashOK = true;
                             }
                         }
+                        flashProgressEnd(flashOK);
                     }
                     else
                     {
@@ -1905,7 +2004,12 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
         // 空サンプル詰めとく
         dvi_->getAudioRingBuffer().advanceWritePointer(255);
 #else
-        hstx_init(settings.flags.useDVIModeForHDMI);
+        // Already running when a write into flash showed its progress screen.
+        if (!hstxStarted)
+        {
+            hstx_init(settings.flags.useDVIModeForHDMI);
+            hstxStarted = true;
+        }
 #if 0
         // For now use an MCP4822 DAC for audio output
         // https://ww1.microchip.com/downloads/aemDocuments/documents/OTH/ProductDocuments/DataSheets/20002249B.pdf
@@ -1925,6 +2029,85 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
     {
         initDVandAudio(marginTop, marginBottom, 256);
     }
+
+#if HSTX
+    // Progress screen for a write into flash, see FrensHelpers.h. Layout and
+    // colours follow pico-bootLoader's flash screen: three message lines at the
+    // menu's text rows 12/14/16, then the status line, bar and percentage of
+    // progress_bar.cpp below them. RGB555.
+    static constexpr uint16_t FP_COL_BG = 0x7FFF;   // white
+    static constexpr uint16_t FP_COL_TEXT = 0x0000; // black, also the bar border
+    static constexpr uint16_t FP_COL_FILL = 0x03E0; // green
+    static constexpr int FP_SCREEN_PIXELS = 320 * 240;
+    // A monitor needs a few seconds to lock onto the signal flashProgressBegin()
+    // starts right after a restart, so a short write (most NES roms, an arcade
+    // copy) is over before any picture appears. After a successful write the
+    // screen therefore stays up until this long after the video started, and
+    // always shows "Done" for FP_DONE_MIN_US. Measured on HW_CONFIG 2: the
+    // monitor showed the screen within 4.7 s, not within 1.9 s.
+    static constexpr uint64_t FP_MONITOR_LOCK_US = 4500 * 1000;
+    static constexpr uint64_t FP_DONE_MIN_US = 300 * 1000;
+    static bool flashProgressShown = false;
+    static uint64_t flashProgressVideoStartUs = 0; // 0: the video was already running
+
+    static void flashProgressFill(uint16_t colour)
+    {
+        uint16_t *fb = (uint16_t *)hstx_getframebuffer();
+        for (int i = 0; i < FP_SCREEN_PIXELS; i++)
+            fb[i] = colour;
+    }
+
+    void flashProgressBegin(const char *title, const char *name)
+    {
+        // Inside initAll() the video normally starts after the flash write;
+        // start it now. The settings are loaded by then, so it comes up in the
+        // saved HDMI/DVI mode, and initDVandAudio() then leaves it running.
+        flashProgressVideoStartUs = 0;
+        if (!hstxStarted)
+        {
+            hstx_init(settings.flags.useDVIModeForHDMI);
+            hstxStarted = true;
+            flashProgressVideoStartUs = time_us_64();
+        }
+        flashProgressShown = true;
+        flashProgressFill(FP_COL_BG);
+        progress_bar_draw_text(96, title, FP_COL_TEXT, FP_COL_BG);
+        progress_bar_draw_text(112, name, FP_COL_TEXT, FP_COL_BG);
+        progress_bar_draw_text(128, "Do not power off.", FP_COL_TEXT, FP_COL_BG);
+        progress_bar_draw(0, 100, FP_COL_FILL, FP_COL_BG, FP_COL_TEXT);
+    }
+
+    void flashProgressUpdate(uint32_t done, uint32_t total)
+    {
+        if (!flashProgressShown)
+            return;
+        char st[40];
+        snprintf(st, sizeof(st), "Writing %lu/%lu KB", (unsigned long)(done / 1024),
+                 (unsigned long)((total + 1023) / 1024));
+        progress_bar_draw_status(st, FP_COL_TEXT, FP_COL_BG);
+        progress_bar_draw(done, total, FP_COL_FILL, FP_COL_BG, FP_COL_TEXT);
+    }
+
+    void flashProgressEnd(bool ok)
+    {
+        if (!flashProgressShown)
+            return;
+        if (ok)
+        {
+            // An arcade cache counts the bytes it programs against the size of
+            // the slot it erased, which ends a little short of 100%.
+            progress_bar_draw_status("Done", FP_COL_TEXT, FP_COL_BG);
+            progress_bar_draw(1, 1, FP_COL_FILL, FP_COL_BG, FP_COL_TEXT);
+            uint64_t until = time_us_64() + FP_DONE_MIN_US;
+            if (flashProgressVideoStartUs != 0 &&
+                until < flashProgressVideoStartUs + FP_MONITOR_LOCK_US)
+                until = flashProgressVideoStartUs + FP_MONITOR_LOCK_US;
+            sleep_until(from_us_since_boot(until));
+        }
+        flashProgressFill(0);
+        flashProgressShown = false;
+    }
+#endif
 
     // newlib's malloc grows the heap by sbrk'ing the *whole* request, even when the
     // free block at the top of the heap already holds most of it. Near the end of
@@ -2786,6 +2969,11 @@ const char *storage_get_flash_manufacturer_name(uint8_t manufacturerId)
             extSpeakerEnabled = (hpToggle == HP_TOGGLE_CONNECT) ? true : false;
             // printf("Headphone toggle detected. Headphones %s\n", extSpeakerEnabled ? "unplugged, using speakers" : "plugged in, using headphones");
         }
+#endif
+#if FRENS_ATTRACT_APP
+        // Every application calls this once a frame, which makes it the one
+        // place attract mode can watch the controls and the clock.
+        attractPoll();
 #endif
     }
 

@@ -324,6 +324,20 @@ namespace FrensSettings
     {
         return emulatorType;
     }
+#if FRENS_ATTRACT_APP
+    // Same choice as resetsettings() makes for currentDir.
+    void getDefaultRomDir(char *buf, size_t size)
+    {
+        if (emulatorType == emulators::ARCADE)
+        {
+            snprintf(buf, size, "/roms/arcade");
+        }
+        else
+        {
+            snprintf(buf, size, "/roms/%s", emulatorstrings[static_cast<int>(emulatorType)]);
+        }
+    }
+#endif
     // Get the current emulator type as a string, this may be different from emulatorTypeForSettings when in multi-emulator mode
     const char *getEmulatorTypeString(bool forSettings)
     {

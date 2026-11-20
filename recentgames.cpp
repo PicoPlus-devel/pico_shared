@@ -167,6 +167,13 @@ namespace Frens
             {
                 return false;
             }
+#if FRENS_ATTRACT_APP
+            // A game attract mode picked is not one the user played.
+            if (Frens::attractActive())
+            {
+                return false;
+            }
+#endif
             if (strlen(fullPath) >= RECENTGAMES_MAXPATH)
             {
                 printf("Recent: path too long, not added: %s\n", fullPath);
