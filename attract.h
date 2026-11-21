@@ -35,8 +35,10 @@
  * loader only picks the application when one of them exists (a folder must not
  * be empty). An empty list means no check. An item starting with '@' is a
  * requirement instead of a path: "@psram" (attract:@psram|/roms/SNES) leaves the
- * application out on a board without PSRAM; a requirement the loader does not
- * know also leaves it out. pico_shared applications use FRENS_ATTRACT_DIRS() or
+ * application out on a board without PSRAM; "@unless=<program name>"
+ * (attract:@unless=doom_tiny_full) leaves it out while the application with that
+ * program name takes part; a requirement the loader does not know also leaves
+ * it out. pico_shared applications use FRENS_ATTRACT_DIRS() or
  * FRENS_ATTRACT_DIRS_PSRAM() from FrensHelpers.h.
  */
 #ifndef FRENS_ATTRACT_H
