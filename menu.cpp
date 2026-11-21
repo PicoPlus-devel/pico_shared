@@ -5822,11 +5822,23 @@ static bool attractSkippedFolder(const char *name)
 // As the loader does with applications, an emulator shows every game once, in
 // random order, before any comes again, and a new round does not start with the
 // game shown last. The games of the current round are listed one full path a
-// line in /attract_<EMU>.txt on the card, beside /recent_<EMU>.txt; a new round
-// starts the file over. Only a hash of each path is kept in memory. Without the
-// file, or without memory for it, every game is picked as if none had been
-// shown. Paths are hashed in lower case: FAT does not tell /ROMS/x from /roms/x.
+// line in /attract/attract_<EMU>.txt on the card; a new round starts the file
+// over. Only a hash of each path is kept in memory. Without the file, or without
+// memory for it, every game is picked as if none had been shown. Paths are
+// hashed in lower case: FAT does not tell /ROMS/x from /roms/x.
 static constexpr int ATTRACT_ROUND_MAX = 8192;   // games one round remembers
+
+// The files attract mode writes, a few per emulator, are kept together in this
+// folder rather than in the root of the card. It is made when the first one is
+// written. Not under /emu: installing the loader's SD-card archive replaces that.
+#define ATTRACTDIR "/attract"
+
+static void attractMakeDir()
+{
+    const FRESULT fr = f_mkdir(ATTRACTDIR);
+    if (fr != FR_OK && fr != FR_EXIST)
+        printf("Attract mode: cannot create %s: %d\n", ATTRACTDIR, fr);
+}
 
 static uint32_t attractHashLower(uint32_t h, const char *s)
 {
@@ -5856,7 +5868,7 @@ struct AttractRound
 
 static void attractRoundFile(char *buf, size_t size)
 {
-    snprintf(buf, size, "/attract_%s.txt", FrensSettings::getEmulatorTypeString());
+    snprintf(buf, size, ATTRACTDIR "/attract_%s.txt", FrensSettings::getEmulatorTypeString());
 }
 
 // Read the round from the card. Two passes: count the games, then hash them
@@ -5936,10 +5948,10 @@ static void attractRoundAdd(const char *file, const char *dir, const char *name,
 
 // With a popular list the games are shown from two piles, and each pile's round
 // knows only its own last game. The game shown last of all is kept in
-// /attract_<EMU>_last.txt, so that it does not come straight back from either.
+// /attract/attract_<EMU>_last.txt, so that it does not come straight back from either.
 static void attractLastFile(char *buf, size_t size)
 {
-    snprintf(buf, size, "/attract_%s_last.txt", FrensSettings::getEmulatorTypeString());
+    snprintf(buf, size, ATTRACTDIR "/attract_%s_last.txt", FrensSettings::getEmulatorTypeString());
 }
 
 // Hash of the game shown last, as attractGameHash() makes it; 0 when not known.
@@ -5996,7 +6008,7 @@ static void attractLastSave(const char *dir, const char *name)
 // tools/make_attract_lists.py from the LaunchBox Games Database) lists the
 // popular games of the emulator's systems: per line, the keys their ROM files
 // may match, then '#' and a comment. The games on the card that match are a pile
-// of their own, with its own round (/attract_<EMU>_popular.txt), and that pile
+// of their own, with its own round (/attract/attract_<EMU>_popular.txt), and that pile
 // is chosen as if each of its games counted ATTRACT_POPULAR_WEIGHT times. Without
 // the list every game is in the other pile, as before.
 static constexpr uint32_t ATTRACT_POPULAR_WEIGHT = 4;
@@ -6231,7 +6243,7 @@ static __attribute__((noinline)) bool attractPickRandomRom(const char *root, con
     AttractPile &popular = piles[0], &rest = piles[1];
     popular.what = "popular";
     rest.what = "other";
-    snprintf(popular.file, sizeof(popular.file), "/attract_%s_popular.txt", FrensSettings::getEmulatorTypeString());
+    snprintf(popular.file, sizeof(popular.file), ATTRACTDIR "/attract_%s_popular.txt", FrensSettings::getEmulatorTypeString());
     attractRoundFile(rest.file, sizeof(rest.file));
     int b = 0;
     for (AttractPile *p : {&popular, &rest})
@@ -6305,6 +6317,7 @@ static __attribute__((noinline)) bool attractPickRandomRom(const char *root, con
         printf("Attract mode: from the %s games\n", pile.what);
         snprintf(dir, FF_MAX_LFN, "%s", r.dir);
         snprintf(name, ROMLISTER_MAXPATH, "%s", r.name);
+        attractMakeDir();
         attractRoundAdd(pile.file, dir, name, newRound);
         if (list.count)
             attractLastSave(dir, name);
